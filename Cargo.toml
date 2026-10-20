@@ -1,0 +1,15 @@
+[package]
+name = "draft"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Local-first, streaming voice dictation for Windows."
+repository = "https://github.com/TirupMehta/draft-rs"
+default-run = "draft"
+
+[dependencies]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,11 @@
+/target
+*.pdb
+*.ilk
+*.exe
+*.msi
+*.dmg
+*.AppImage
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
