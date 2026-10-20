@@ -151,7 +151,7 @@ pub fn apply_corrections(input: &str, corrections: &[Correction]) -> String {
         .iter()
         .filter(|correction| !correction.heard.is_empty())
         .collect::<Vec<_>>();
-    ordered.sort_by(|left, right| right.heard.len().cmp(&left.heard.len()));
+    ordered.sort_by_key(|left| std::cmp::Reverse(left.heard.len()));
 
     let mut out = String::with_capacity(input.len());
     let mut cursor = 0;
