@@ -13,6 +13,9 @@
 
 $ErrorActionPreference = "Stop"
 
+$transcript = Join-Path $PSScriptRoot "..\setup-windows.log"
+try { Start-Transcript -Path $transcript -Append | Out-Null } catch { }
+
 function Write-Step($message) {
     Write-Host ""
     Write-Host "==> $message" -ForegroundColor Cyan
@@ -119,4 +122,5 @@ Write-Step "Verify"
 & rustup component list --installed
 
 Write-Host ""
-Write-Host "Done. Open a new terminal, then run: cargo run" -ForegroundColor Green
+Write-Host "Done. Open a new terminal, then run: cargo run -p draft-desktop" -ForegroundColor Green
+try { Stop-Transcript | Out-Null } catch { }
