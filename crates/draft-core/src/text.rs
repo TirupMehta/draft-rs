@@ -186,26 +186,48 @@ pub fn remove_fillers(input: &str) -> String {
     const FILLERS: &[&str] = &["um", "umm", "uh", "uhh", "erm", "er", "ah", "hmm"];
 
     let mut out = String::with_capacity(input.len());
-    let mut pending_space = false;
     for token in input.split_inclusive(char::is_whitespace) {
         let word = token.trim_end_matches(char::is_whitespace);
-        let trailing = &token[word.len()..];
         let core = word.trim_matches(|ch: char| !ch.is_alphanumeric());
         if FILLERS
             .iter()
             .any(|filler| core.eq_ignore_ascii_case(filler))
         {
-            // Drop the filler and any punctuation attached to it. The next
-            // word still gets exactly one separating space.
-            pending_space = !out.is_empty();
+            // Keep a paragraph break that was attached to the filler, but drop
+            // the word and its punctuation.
+            for ch in token[word.len()..].chars() {
+                if ch == '\n' || ch == '\r' {
+                    out.push(ch);
+                }
+            }
             continue;
         }
-        if pending_space && !out.is_empty() && !word.is_empty() {
-            out.push(' ');
+        out.push_str(token);
+    }
+    normalize_spaces(&out)
+}
+
+/// Collapse horizontal whitespace to one space, trim spaces at the edges and
+/// around newlines, and leave paragraph breaks intact.
+fn normalize_spaces(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut pending_space = false;
+    for ch in input.chars() {
+        match ch {
+            ' ' | '\t' => pending_space = true,
+            '\n' | '\r' => {
+                pending_space = false;
+                out.push(ch);
+            }
+            _ => {
+                if pending_space && !out.is_empty() && !out.ends_with('\n') && !out.ends_with('\r')
+                {
+                    out.push(' ');
+                }
+                pending_space = false;
+                out.push(ch);
+            }
         }
-        pending_space = false;
-        out.push_str(word);
-        out.push_str(trailing);
     }
     out
 }
@@ -320,6 +342,8 @@ mod tests {
     fn removes_fillers_but_keeps_punctuation() {
         assert_eq!(remove_fillers("um hello uh world."), "hello world.");
         assert_eq!(remove_fillers("hello, um, world"), "hello, world");
+        assert_eq!(remove_fillers("hello um\nworld"), "hello\nworld");
+        assert_eq!(remove_fillers("um\n\nhello"), "\n\nhello");
         assert_eq!(
             remove_fillers("humming is not a filler"),
             "humming is not a filler"
