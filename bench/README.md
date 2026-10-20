@@ -42,6 +42,26 @@ cargo run -p draft -- bench --fixtures bench/fixtures --runs 10 --json bench/res
 The harness runs one warmup plus `--runs` measured passes per fixture, reports
 p50/p95, and compares against `bench/baseline.json` when it exists.
 
+## Engine bake-off
+
+The Windows engine is `transcribe.cpp` with Vulkan. Build `transcribe-cli` and
+`transcribe-bench` from a short path (for example `C:\bv`), with
+`-DTRANSCRIBE_VULKAN=ON -DTRANSCRIBE_BUILD_TOOLS=ON`, then:
+
+```powershell
+C:\bv\bin\Release\transcribe-bench.exe `
+  --model C:\all\models\whisper-large-v3-turbo-Q8_0.gguf `
+  --sample .\bench\fixtures\tts-5s.wav `
+  --backend vulkan --device 0 --warmup 3 --iters 5 `
+  --quiet --json-out .\bench\results\vulkan-tts-5s.wav.json
+
+python .\bench\compare_bakeoff.py --results-dir .\bench\results --prefix vulkan-
+```
+
+Always warm up: the first Vulkan run compiles pipelines and is not a real
+latency number. Results are in [`docs/PERFORMANCE.md`](../docs/PERFORMANCE.md);
+the measured Vulkan path is about 2× faster than v3.5 on short and medium clips.
+
 ## Baseline schema
 
 `bench/baseline.json` is committed only after a real measurement on the

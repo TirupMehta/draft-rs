@@ -22,8 +22,9 @@ core.
 
 - [x] Capture the Draft v3.5 speed baseline on the reference RTX 4060, using
       the same clips and the same `large-v3-turbo` model.
-- [ ] Engine bake-off: `transcribe.cpp` Vulkan, `transcribe.cpp` CUDA (if the
-      Windows build is sound), and a CTranslate2 shim.
+- [x] Engine bake-off: `transcribe.cpp` Vulkan selected. Warm `large-v3-turbo`
+      Q8_0 is ~2× faster than v3.5; CUDA was not pursued, and the CTranslate2
+      shim stays a fallback only if the WER gate fails.
 - [x] `bench/baseline.json` records the v3.5 baseline.
 - [ ] `draft bench --json` and the 10% p95 gate.
 - [ ] `cpal` capture at 16 kHz mono with device selection.

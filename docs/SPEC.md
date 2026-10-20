@@ -172,7 +172,7 @@ apps/mobile/android/                Compose shell over the C ABI (M7)
 | Mobile UI | SwiftUI + Jetpack Compose | Native keyboards and platform background rules; shares the Rust core |
 | Audio | `cpal` | WASAPI, CoreAudio, ALSA/PipeWire capture and device enumeration |
 | Resampling | `rubato` | High-quality 16 kHz conversion |
-| Inference | `transcribe-cpp` | GGUF Whisper large-v3-turbo; Vulkan on Windows, Metal on macOS; CUDA evaluated for NVIDIA parity |
+| Inference | `transcribe-cpp` | GGUF Whisper large-v3-turbo; Vulkan on Windows (measured ~2× faster than v3.5), Metal on macOS; CUDA is Linux-only upstream |
 | Default model | `whisper-large-v3-turbo` | Same family as Draft v3.5; Parakeet only for preview or opt-in |
 | Clipboard | `arboard` + native synthetic input | Formats, change counts, direct typing |
 | Tray | `tray-icon` + native menu-bar adapters | Native notification-area and menu-bar integration |

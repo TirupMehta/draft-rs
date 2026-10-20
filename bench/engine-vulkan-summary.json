@@ -1,0 +1,87 @@
+{
+  "tts-15s.wav": {
+    "duration_s": 15.0,
+    "v35_final_ms": {
+      "p50": 1077.2,
+      "p95": 1139.3
+    },
+    "new_final_ms": {
+      "p50": 545.4,
+      "p95": 579.4
+    },
+    "speedup": {
+      "p50": 1.97,
+      "p95": 1.97
+    },
+    "backend": "Vulkan0",
+    "iters": 5
+  },
+  "tts-30s.wav": {
+    "duration_s": 30.0,
+    "v35_final_ms": {
+      "p50": 1473.3,
+      "p95": 1601.4
+    },
+    "new_final_ms": {
+      "p50": 722.3,
+      "p95": 727.4
+    },
+    "speedup": {
+      "p50": 2.04,
+      "p95": 2.2
+    },
+    "backend": "Vulkan0",
+    "iters": 5
+  },
+  "tts-3s.wav": {
+    "duration_s": 3.0,
+    "v35_final_ms": {
+      "p50": 943.3,
+      "p95": 996.4
+    },
+    "new_final_ms": {
+      "p50": 422.6,
+      "p95": 429.0
+    },
+    "speedup": {
+      "p50": 2.23,
+      "p95": 2.32
+    },
+    "backend": "Vulkan0",
+    "iters": 10
+  },
+  "tts-5s.wav": {
+    "duration_s": 5.0,
+    "v35_final_ms": {
+      "p50": 880.1,
+      "p95": 929.4
+    },
+    "new_final_ms": {
+      "p50": 422.2,
+      "p95": 434.3
+    },
+    "speedup": {
+      "p50": 2.08,
+      "p95": 2.14
+    },
+    "backend": "Vulkan0",
+    "iters": 5
+  },
+  "tts-60s.wav": {
+    "duration_s": 60.0,
+    "v35_final_ms": {
+      "p50": 2899.8,
+      "p95": 3035.6
+    },
+    "new_final_ms": {
+      "p50": 1790.2,
+      "p95": 1808.4
+    },
+    "speedup": {
+      "p50": 1.62,
+      "p95": 1.68
+    },
+    "backend": "Vulkan0",
+    "iters": 5
+  }
+}

@@ -90,18 +90,43 @@ substitute for the gate:
 
 | Candidate | Why | Status |
 | --- | --- | --- |
-| `transcribe.cpp` Vulkan | Windows GPU path with no CUDA toolkit for users | Default candidate |
-| `transcribe.cpp` CUDA | Native NVIDIA path if the Windows build is sound | Evaluate |
-| CTranslate2 C++ shim | Exact v3.5 engine; highest chance of parity | Fallback if Vulkan loses |
-| whisper.cpp CUDA | Mature Windows CUDA path | Alternative |
+| `transcribe.cpp` Vulkan | Windows GPU path with no CUDA toolkit for users | **Selected for Windows**: measured ~2× faster than v3.5 |
+| `transcribe.cpp` CUDA | Native NVIDIA path if the Windows build is sound | Not pursued: upstream documents CUDA as Linux-only |
+| CTranslate2 C++ shim | Exact v3.5 engine; highest chance of parity | Fallback only if Vulkan WER fails |
+| whisper.cpp CUDA | Mature Windows CUDA path | Not needed: Vulkan already beats v3.5 |
 
 Decision rule: choose the fastest p95 that meets the WER bar, then weigh
-installer size and user setup cost. Do not assume Vulkan is fast enough.
-Measure it against the CUDA baseline before committing.
+installer size and user setup cost. Vulkan won the latency benchmark; WER on
+real recordings is still the release gate.
 
-Windows CUDA support in `transcribe.cpp` is documented as Linux-only in its
-CMake options. Treat it as unproven until a Windows build and a benchmark both
-pass.
+### Measured bake-off (2026-10-20)
+
+`transcribe.cpp` Vulkan, `whisper-large-v3-turbo-Q8_0`, RTX 4060, warm model,
+five measured iterations per clip (ten for 3 s), compared with v3.5:
+
+| Clip | v3.5 p50 | v3.5 p95 | Vulkan p50 | Vulkan p95 | Speedup p50 | Speedup p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 3 s | 943 ms | 996 ms | 423 ms | 429 ms | **2.23×** | **2.32×** |
+| 5 s | 880 ms | 929 ms | 422 ms | 434 ms | **2.08×** | **2.14×** |
+| 15 s | 1,077 ms | 1,139 ms | 545 ms | 579 ms | **1.97×** | **1.97×** |
+| 30 s | 1,473 ms | 1,601 ms | 722 ms | 727 ms | **2.04×** | **2.20×** |
+| 60 s | 2,900 ms | 3,036 ms | 1,790 ms | 1,808 ms | **1.62×** | **1.68×** |
+
+What the numbers mean:
+
+- The fixed ~800 ms overhead in v3.5 is gone. Short clips are now dominated by
+  the 340 ms Whisper encoder pass, not setup.
+- Decode is only ~60 ms for a 3-second clip; host BLAS would not move the
+  number, so Windows does not need OpenBLAS.
+- The first Vulkan run is much slower because it compiles compute pipelines.
+  Warm-up is mandatory: the app must prewarm the backend and model at launch,
+  before the first dictation.
+- `transcribe.cpp` Whisper currently uses greedy decoding, while v3.5 used
+  beam 5 plus VAD. The latency win is real, but it is not yet an accuracy win.
+  WER on real recordings must be within 0.5 percentage points of v3.5 before
+  this engine ships. If it fails, test F16, then a beam/best-of path, then the
+  CTranslate2 fallback. Do not hide an accuracy regression behind a speed
+  table.
 
 ## Why Rust should win
 
