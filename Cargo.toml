@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/draft-core", "crates/draft-cli"]
+members = [
+    "crates/draft-core",
+    "crates/draft-cli",
+    "apps/desktop",
+]
 resolver = "3"
 
 [workspace.package]

@@ -1,0 +1,22 @@
+[package]
+name = "draft-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Draft desktop shell for Windows, macOS, and Linux."
+
+[[bin]]
+name = "draft"
+path = "src/main.rs"
+
+[dependencies]
+color-eyre = "0.6"
+draft-core.workspace = true
+gpui = { version = "0.2.2", default-features = false, features = [
+  "font-kit",
+  "windows-manifest",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
