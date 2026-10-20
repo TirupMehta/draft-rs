@@ -1,5 +1,7 @@
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+mod text;
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
@@ -7,6 +9,10 @@ fn main() {
         None | Some("app") => {
             println!("Draft {VERSION}");
             println!("The native shell is not built yet. See docs/ROADMAP.md.");
+        }
+        Some("clean") => {
+            let input = args[1..].join(" ");
+            println!("{}", text::clean_text(&input, false));
         }
         Some("--version" | "-V") => println!("draft {VERSION}"),
         Some("--help" | "-h") => print_help(),
@@ -23,8 +29,9 @@ fn print_help() {
         "Draft {VERSION}
 
 Usage:
-  draft            Open the app (not built yet)
-  draft --version  Print the version
-  draft --help     Show this help"
+  draft              Open the app (not built yet)
+  draft clean <text> Print the cleaned transcript
+  draft --version    Print the version
+  draft --help       Show this help"
     );
 }
