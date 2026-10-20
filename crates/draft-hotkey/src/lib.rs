@@ -30,11 +30,7 @@ pub struct HotkeyConfig {
 impl HotkeyConfig {
     /// Resolve a short configuration name such as `right-ctrl` or `f8`.
     pub fn named(name: &str) -> Option<Self> {
-        let normalized = name
-            .trim()
-            .to_ascii_lowercase()
-            .replace('-', " ")
-            .replace('_', " ");
+        let normalized = name.trim().to_ascii_lowercase().replace(['-', '_'], " ");
         let (virtual_key, name) = match normalized.as_str() {
             "right ctrl" | "right control" | "rctrl" => (VK_RCONTROL, "Right Ctrl"),
             "right alt" | "ralt" | "altgr" => (VK_RMENU, "Right Alt"),

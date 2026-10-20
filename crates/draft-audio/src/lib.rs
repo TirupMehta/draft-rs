@@ -173,7 +173,7 @@ fn resample(input: &[f32], from: u32, to: u32) -> Result<Vec<f32>> {
     let expected = (input.len() as f64 * f64::from(to) / f64::from(from)).round() as usize;
     let mut output = Vec::with_capacity(expected + CHUNK + delay);
 
-    let padded_len = (input.len() + CHUNK - 1) / CHUNK * CHUNK;
+    let padded_len = input.len().div_ceil(CHUNK) * CHUNK;
     let mut padded = Vec::with_capacity(padded_len);
     padded.extend_from_slice(input);
     padded.resize(padded_len, 0.0);
