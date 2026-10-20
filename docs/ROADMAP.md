@@ -9,7 +9,9 @@ core.
 - [x] Initialize repo, MIT license, `.gitignore`, CI.
 - [x] Write the product spec and architecture.
 - [x] Split the platform-neutral core from the CLI.
-- [ ] Install Rust, VS Build Tools, Windows SDK, Vulkan SDK.
+- [x] Install Rust, VS Build Tools, and the Windows SDK.
+- [ ] Install the Vulkan SDK.
+- [x] Set `GPUI_FXC_PATH` to the Windows SDK shader compiler.
 - [ ] Open a GPUI window with the Draft theme.
 - [ ] Add a tray icon with Show, Hide, Quit.
 - [ ] Register a low-level keyboard hook and log a Right Ctrl hold.
@@ -18,12 +20,18 @@ core.
 
 ## M1 — Dictation MVP
 
+- [ ] Capture the Draft v3.5 speed baseline on the reference RTX 4060, using
+      the same clips and the same `large-v3-turbo` model.
+- [ ] Engine bake-off: `transcribe.cpp` Vulkan, `transcribe.cpp` CUDA (if the
+      Windows build is sound), and a CTranslate2 shim.
+- [ ] `draft bench --json`, `bench/baseline.json`, and the 10% p95 gate.
 - [ ] `cpal` capture at 16 kHz mono with device selection.
 - [ ] Shortcut state machine: hold, short-tap discard, Escape cancel.
 - [ ] Load a local GGUF model through `transcribe-cpp`.
 - [ ] Whole-clip transcription and paste with clipboard restoration.
 - [ ] Paste Last and a direct-typing fallback.
 - [ ] End-to-end test: 5-second WAV fixture transcribes to expected text.
+- [ ] **Acceptance:** final p95 is no worse than v3.5; target 20% faster.
 
 ## M2 — Models and streaming
 
@@ -32,6 +40,8 @@ core.
 - [ ] Streaming session with partial text; final whole-clip fallback.
 - [ ] HUD: waveform, partial text, processing state, click-through.
 - [ ] Two-pass mode: Parakeet preview, Whisper final.
+- [ ] Benchmark F16 vs Q8_0; pick on WER first, latency second.
+- [ ] Prove the preview model does not regress final p95 by more than 2%.
 
 ## M3 — Settings, history, corrections
 

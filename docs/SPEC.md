@@ -172,7 +172,8 @@ apps/mobile/android/                Compose shell over the C ABI (M7)
 | Mobile UI | SwiftUI + Jetpack Compose | Native keyboards and platform background rules; shares the Rust core |
 | Audio | `cpal` | WASAPI, CoreAudio, ALSA/PipeWire capture and device enumeration |
 | Resampling | `rubato` | High-quality 16 kHz conversion |
-| Inference | `transcribe-cpp` | GGUF Parakeet/Whisper, Vulkan/CUDA/Metal/CPU, one Rust API |
+| Inference | `transcribe-cpp` | GGUF Whisper large-v3-turbo; Vulkan on Windows, Metal on macOS; CUDA evaluated for NVIDIA parity |
+| Default model | `whisper-large-v3-turbo` | Same family as Draft v3.5; Parakeet only for preview or opt-in |
 | Clipboard | `arboard` + native synthetic input | Formats, change counts, direct typing |
 | Tray | `tray-icon` + native menu-bar adapters | Native notification-area and menu-bar integration |
 | Platform | `windows-sys`, `objc2`, `x11rb`/Wayland | Hooks, UI Automation, event taps, audio sessions, registry |
@@ -181,18 +182,26 @@ apps/mobile/android/                Compose shell over the C ABI (M7)
 | Updates | `ed25519-dalek` + custom feed | Signed manifests, version ordering, rollback |
 | Mobile bridge | C ABI + generated bindings | Keeps `draft-core` free of UI and OS dependencies |
 
-## 9. Performance budgets
+## 9. Performance contract
 
-- Shortcut press to capture start: **< 50 ms p95**.
-- First streamed words visible: **< 400 ms** after speech onset.
-- Release to pasted final text, 10 s clip, RTX 4060, Whisper turbo:
-  **p50 < 500 ms**, **p95 < 1.2 s**.
-- Idle RAM without a model: **< 120 MB**.
-- Installer size without models: **< 60 MB**.
+Speed is a release criterion. [`PERFORMANCE.md`](PERFORMANCE.md) owns the
+reference machine, the Draft v3.5 baseline, the engine bake-off, and the
+benchmark protocol.
+
+- The default final model stays `whisper-large-v3-turbo`; never downgrade it to
+  hit a budget.
+- Final-text latency must match or beat v3.5 p50 and p95 on the same clips;
+  target 20% faster.
+- First streamed words < 300 ms after speech onset; the preview model never
+  delays the final pass.
+- Shortcut press to capture < 30 ms p95 warm; paste adds < 80 ms p95.
+- Idle CPU < 0.5%; working set < 300 MB; VRAM < 6.5 GB.
+- Installer size without models < 60 MB.
 - No dropped audio while the UI is busy or a model is loading.
 
-Budgets are targets, measured on the development machine first and then on a
-clean Windows VM.
+The v3.5 baseline and the engine choice are measured, not assumed. Until the
+baseline is recorded, the absolute ceilings in `PERFORMANCE.md` are upper
+bounds only; if v3.5 is faster, v3.5 wins.
 
 ## 10. Data and privacy
 

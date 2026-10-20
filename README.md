@@ -14,6 +14,8 @@ large-v3-turbo for accuracy.
 ## Why Draft
 
 - **Local.** No cloud, no account, no upload.
+- **Fast.** The same `large-v3-turbo` model as Draft v3, kept warm on the GPU,
+  with no Python in the path. Benchmarked against v3.5 every release.
 - **Streaming.** Words appear while you speak.
 - **Accurate.** Whisper large-v3-turbo for the final transcript.
 - **Polished.** Native GPU-rendered UI, click-through HUD, tray app.
@@ -44,12 +46,13 @@ the core.
 | Desktop UI | GPUI (native, GPU-rendered) |
 | Mobile UI | SwiftUI and Jetpack Compose over the core (later) |
 | Audio | cpal (WASAPI, CoreAudio, ALSA/PipeWire) |
-| Inference | transcribe.cpp (GGUF Parakeet + Whisper) |
+| Inference | transcribe.cpp (GGUF Whisper large-v3-turbo; Vulkan, Metal, CUDA) |
 | Clipboard | arboard + native synthetic input |
 | Platform | windows-sys, objc2, X11/Wayland |
 
-See [docs/SPEC.md](docs/SPEC.md) for the product contract and architecture, and
-[docs/ROADMAP.md](docs/ROADMAP.md) for the build order.
+See [docs/SPEC.md](docs/SPEC.md) for the product contract and architecture,
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the speed baseline and release
+gate, and [docs/ROADMAP.md](docs/ROADMAP.md) for the build order.
 
 ## Build
 
