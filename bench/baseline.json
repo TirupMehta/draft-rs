@@ -1,0 +1,65 @@
+{
+  "created": "2026-10-20T08:04:40.340897+00:00",
+  "machine": {
+    "cpu": "Intel Core i7-13620H",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop 8 GB",
+    "ram_gb": 16,
+    "os": "Windows 11 build 26300"
+  },
+  "engine": {
+    "name": "Draft v3.5",
+    "model": "large-v3-turbo",
+    "backend": "CTranslate2 CUDA",
+    "compute_type": "float16",
+    "beam_size": 5,
+    "vad": true
+  },
+  "fixtures": {
+    "tts-15s.wav": {
+      "duration_s": 15.0,
+      "final_ms": {
+        "p50": 1077.2,
+        "p95": 1139.3
+      },
+      "rtf": 13.93,
+      "text": "This is a longer dictation test. It includes names like Tirup Mehta, a date on October 20th, and a short list of three items, speed, accuracy, and privacy. The sentence ends here. A second"
+    },
+    "tts-30s.wav": {
+      "duration_s": 30.0,
+      "final_ms": {
+        "p50": 1473.3,
+        "p95": 1601.4
+      },
+      "rtf": 20.36,
+      "text": "This is a longer dictation test. It includes names like Tyrup Mehta, a date on October 20th, and a short list of three items, speed, accuracy, and privacy. The sentence ends here. A second sentence checks punctuation, commas, and a question mark. Finally, this paragraph gives the engine enough audio to behave like a real note. This is a longer dictation test. It includes names like Tyrup Mehta."
+    },
+    "tts-3s.wav": {
+      "duration_s": 3.0,
+      "final_ms": {
+        "p50": 943.3,
+        "p95": 996.4
+      },
+      "rtf": 3.18,
+      "text": "Draft turns speech into text at the cursor."
+    },
+    "tts-5s.wav": {
+      "duration_s": 5.0,
+      "final_ms": {
+        "p50": 880.1,
+        "p95": 929.4
+      },
+      "rtf": 5.68,
+      "text": "Hold the shortcut, speak naturally, and release. The final"
+    },
+    "tts-60s.wav": {
+      "duration_s": 60.0,
+      "final_ms": {
+        "p50": 2899.8,
+        "p95": 3035.6
+      },
+      "rtf": 20.69,
+      "text": "This is a longer dictation test. It includes names like Tyrup Mehta, a date on October 20th, and a short list of three items, speed, accuracy, and privacy. The sentence ends here. A second sentence checks punctuation, commas, and a question mark. Finally, this paragraph gives the engine enough audio to behave like a real note. This is a longer dictation test. It includes names like Tyrup Mehta. a date on October 20th, and a short list of three items, speed, accuracy, and privacy. The sentence ends here. A second sentence checks punctuation, commas, and a question mark. Finally, this paragraph gives the engine enough audio to behave like a real note. This is a longer dictation test. It includes names like Tyrup Mehta, a date on October 20th, and a short list of three items, speed, accuracy,"
+    }
+  },
+  "notes": "Windows TTS latency fixtures. Final latency covers the decode iteration, not clipboard paste."
+}

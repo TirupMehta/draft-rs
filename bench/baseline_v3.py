@@ -19,9 +19,26 @@ import statistics
 import sys
 import time
 import wave
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_BUNDLE = Path(r"C:\all\Draft\dist\Draft\_internal")
+
+MACHINE = {
+    "cpu": "Intel Core i7-13620H",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop 8 GB",
+    "ram_gb": 16,
+    "os": "Windows 11 build 26300",
+}
+
+ENGINE = {
+    "name": "Draft v3.5",
+    "model": "large-v3-turbo",
+    "backend": "CTranslate2 CUDA",
+    "compute_type": "float16",
+    "beam_size": 5,
+    "vad": True,
+}
 
 
 def prepare_bundle(bundle: Path) -> None:
@@ -119,8 +136,18 @@ def main() -> None:
             flush=True,
         )
 
+    payload = {
+        "created": datetime.now(timezone.utc).isoformat(),
+        "machine": MACHINE,
+        "engine": ENGINE,
+        "fixtures": results,
+        "notes": (
+            "Windows TTS latency fixtures. Final latency covers the decode "
+            "iteration, not clipboard paste."
+        ),
+    }
     args.json.parent.mkdir(parents=True, exist_ok=True)
-    args.json.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"wrote {args.json}")
 
 

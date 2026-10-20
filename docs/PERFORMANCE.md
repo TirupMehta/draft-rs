@@ -33,6 +33,21 @@ The harness reproduces these settings on the same 16 kHz clips. A Rust CPU
 build is not compared with a Python CUDA build and called a regression; the
 engine bake-off below decides the backend.
 
+Measured on 2026-10-20 with the 16 kHz TTS fixtures, ten warm runs each:
+
+| Clip | v3.5 p50 | v3.5 p95 | 20% target p50 | 20% target p95 |
+| --- | --- | --- | --- | --- |
+| 3 s | 943 ms | 996 ms | 755 ms | 797 ms |
+| 5 s | 880 ms | 929 ms | 704 ms | 743 ms |
+| 15 s | 1,077 ms | 1,139 ms | 862 ms | 911 ms |
+| 30 s | 1,473 ms | 1,601 ms | 1,179 ms | 1,281 ms |
+| 60 s | 2,900 ms | 3,036 ms | 2,320 ms | 2,428 ms |
+
+These cover decode only, not paste. The short clips carry roughly 800 ms of
+fixed overhead while the 60-second clip runs at 20.7× real time. The first
+speed win is removing that fixed cost, not changing the model. The measured
+numbers live in [`../bench/baseline.json`](../bench/baseline.json).
+
 ## Contract
 
 | Stage | Budget | Notes |
@@ -48,14 +63,17 @@ engine bake-off below decides the backend.
 | VRAM | ≤ 6.5 GB | Leaves headroom on an 8 GB laptop GPU |
 | Audio integrity | zero drops | 60 s capture with UI, paste, and a model load busy |
 
-Absolute ceilings until the baseline is recorded — these are upper bounds, not
-targets. If v3.5 is faster, v3.5 wins:
+The merge gate is the measured v3.5 p50 and p95 for each clip. These absolute
+ceilings are the stretch once the fixed overhead is gone; they are not a
+substitute for the gate:
 
 | Clip | Release → paste p50 | p95 |
 | --- | --- | --- |
+| 3 s | 300 ms | 600 ms |
 | 5 s | 350 ms | 700 ms |
-| 15 s | 700 ms | 1.4 s |
-| 30 s | 1.2 s | 2.2 s |
+| 15 s | 500 ms | 900 ms |
+| 30 s | 800 ms | 1.3 s |
+| 60 s | 1.8 s | 2.5 s |
 
 ## Model policy
 
@@ -122,5 +140,6 @@ pass.
 
 ## Status
 
-The v3.5 baseline capture, the engine bake-off, and `draft bench` are M1 work.
-No numbers are claimed here until they are written to `bench/baseline.json`.
+The v3.5 baseline is recorded in [`../bench/baseline.json`](../bench/baseline.json).
+The engine bake-off and the Rust `draft bench` harness remain M1 work. The
+20% target and the 10% regression gate are active from the first engine build.

@@ -10,12 +10,12 @@ Audio is not committed: it is large, personal, and easy to regenerate. Put
 
 | File | Content |
 | --- | --- |
-| `short-3s.wav` | Greeting, one sentence |
-| `short-5s.wav` | Name, comma, question mark |
-| `medium-15s.wav` | Several sentences, natural pauses |
-| `long-30s.wav` | Paragraph with punctuation and a list |
-| `long-60s.wav` | Sustained speech, no long silence |
-| `multilingual-10s.wav` | Non-English sentence with a proper noun |
+| `tts-3s.wav` | Greeting, one sentence |
+| `tts-5s.wav` | Two sentences, name |
+| `tts-15s.wav` | Names, date, list, punctuation |
+| `tts-30s.wav` | Two paragraphs |
+| `tts-60s.wav` | Four paragraphs |
+| `multilingual-10s.wav` | Optional: non-English sentence with a proper noun |
 
 Record all fixtures with the same microphone and room for a fair comparison.
 Do not commit personal audio.
@@ -49,7 +49,7 @@ reference machine. No placeholder numbers.
 
 ```json
 {
-  "created": "2026-10-20T00:00:00Z",
+  "created": "2026-10-20T08:04:40Z",
   "machine": {
     "cpu": "Intel Core i7-13620H",
     "gpu": "NVIDIA GeForce RTX 4060 Laptop 8 GB",
@@ -57,22 +57,24 @@ reference machine. No placeholder numbers.
     "os": "Windows 11 build 26300"
   },
   "engine": {
-    "name": "draft-v3.5",
+    "name": "Draft v3.5",
     "model": "large-v3-turbo",
-    "backend": "cuda",
+    "backend": "CTranslate2 CUDA",
     "compute_type": "float16",
-    "beam_size": 5
+    "beam_size": 5,
+    "vad": true
   },
   "fixtures": {
-    "short-5s.wav": {
-      "final_ms": { "p50": 0, "p95": 0 },
-      "paste_ms": { "p50": 0, "p95": 0 },
-      "first_partial_ms": { "p50": 0, "p95": 0 },
-      "rtf": 0
+    "tts-5s.wav": {
+      "duration_s": 5.0,
+      "final_ms": { "p50": 880.1, "p95": 929.4 },
+      "rtf": 5.68,
+      "text": "Hold the shortcut, speak naturally, and release. The final"
     }
-  },
-  "wer": {
-    "fixture-set": 0
   }
 }
 ```
+
+The Rust harness adds `paste_ms` and `first_partial_ms`; the v3.5 engine only
+measured final decode. See [`baseline.json`](baseline.json) for the full
+recorded measurement.
