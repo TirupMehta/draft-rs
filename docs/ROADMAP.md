@@ -10,9 +10,9 @@ core.
 - [x] Write the product spec and architecture.
 - [x] Split the platform-neutral core from the CLI.
 - [x] Install Rust, VS Build Tools, and the Windows SDK.
-- [ ] Install the Vulkan SDK.
+- [x] Install the Vulkan SDK.
 - [x] Set `GPUI_FXC_PATH` to the Windows SDK shader compiler.
-- [ ] Open a GPUI window with the Draft theme.
+- [x] Open a GPUI window with the Draft theme.
 - [ ] Add a tray icon with Show, Hide, Quit.
 - [ ] Register a low-level keyboard hook and log a Right Ctrl hold.
 - [ ] `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace`
@@ -20,11 +20,12 @@ core.
 
 ## M1 — Dictation MVP
 
-- [ ] Capture the Draft v3.5 speed baseline on the reference RTX 4060, using
+- [x] Capture the Draft v3.5 speed baseline on the reference RTX 4060, using
       the same clips and the same `large-v3-turbo` model.
 - [ ] Engine bake-off: `transcribe.cpp` Vulkan, `transcribe.cpp` CUDA (if the
       Windows build is sound), and a CTranslate2 shim.
-- [ ] `draft bench --json`, `bench/baseline.json`, and the 10% p95 gate.
+- [x] `bench/baseline.json` records the v3.5 baseline.
+- [ ] `draft bench --json` and the 10% p95 gate.
 - [ ] `cpal` capture at 16 kHz mono with device selection.
 - [ ] Shortcut state machine: hold, short-tap discard, Escape cancel.
 - [ ] Load a local GGUF model through `transcribe-cpp`.

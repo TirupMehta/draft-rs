@@ -63,7 +63,7 @@ Windows:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
-cargo run -p draft
+cargo run -p draft-desktop
 ```
 
 ## License
