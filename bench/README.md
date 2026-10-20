@@ -20,6 +20,17 @@ Audio is not committed: it is large, personal, and easy to regenerate. Put
 Record all fixtures with the same microphone and room for a fair comparison.
 Do not commit personal audio.
 
+For a quick, reproducible latency set, generate local Windows TTS clips and trim
+them to exact durations:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\bench\make-fixtures.ps1
+python .\bench\trim_fixtures.py
+```
+
+TTS clips are fine for latency and engine bake-offs. Use real recordings for
+WER and multilingual quality.
+
 ## Running
 
 Once the benchmark CLI lands:
