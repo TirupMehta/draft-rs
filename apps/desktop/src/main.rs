@@ -13,6 +13,7 @@ mod worker;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use draft_core::settings::Settings;
 use draft_engine::ComputeBackend;
 use draft_hotkey::HotkeyConfig;
 use gpui::prelude::*;
@@ -41,6 +42,9 @@ fn main() -> color_eyre::Result<()> {
                 options.backend,
                 options.paste,
                 options.hotkey,
+                options.microphone.clone(),
+                options.settings.clone(),
+                options.settings_path.clone(),
                 hud.clone(),
             )
         });
@@ -148,18 +152,46 @@ struct Options {
     backend: ComputeBackend,
     paste: bool,
     hotkey: HotkeyConfig,
+    microphone: Option<String>,
+    settings: Settings,
+    settings_path: PathBuf,
 }
 
 fn parse_options() -> Options {
-    let mut model = default_model_path();
-    let mut explicit_model = false;
-    let mut backend = ComputeBackend::Auto;
-    let mut paste = true;
-    let mut hotkey = HotkeyConfig::default();
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let settings_path = cli_settings_path(&args)
+        .or_else(|| std::env::var_os("DRAFT_SETTINGS_PATH").map(PathBuf::from))
+        .unwrap_or_else(Settings::default_path);
+    let settings = Settings::load_or_default(&settings_path);
 
-    let mut args = std::env::args().skip(1);
+    let mut model = default_model_path();
+    let mut explicit_model = std::env::var_os("DRAFT_MODEL_PATH").is_some();
+    if !explicit_model {
+        if let Some(saved) = settings.model.clone() {
+            model = saved;
+            explicit_model = true;
+        }
+    }
+    let mut backend = ComputeBackend::Auto;
+    let mut paste = settings.paste;
+    let mut hotkey = HotkeyConfig::named(&settings.hotkey).unwrap_or_else(|| {
+        tracing::warn!(
+            hotkey = %settings.hotkey,
+            "unknown saved hotkey; using the default"
+        );
+        HotkeyConfig::default()
+    });
+    let mut microphone = settings.microphone.clone();
+
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--settings" => {
+                if args.next().is_none() {
+                    eprintln!("--settings needs a path");
+                    std::process::exit(2);
+                }
+            }
             "--model" | "-m" => {
                 let Some(path) = args.next() else {
                     eprintln!("--model needs a path");
@@ -199,6 +231,17 @@ fn parse_options() -> Options {
                     }
                 };
             }
+            "--microphone" => {
+                let Some(value) = args.next() else {
+                    eprintln!("--microphone needs a device name");
+                    std::process::exit(2);
+                };
+                microphone = if value == "default" {
+                    None
+                } else {
+                    Some(value)
+                };
+            }
             "--help" | "-h" => {
                 println!("{}", help());
                 std::process::exit(0);
@@ -224,7 +267,17 @@ fn parse_options() -> Options {
         backend,
         paste,
         hotkey,
+        microphone,
+        settings,
+        settings_path,
     }
+}
+
+fn cli_settings_path(args: &[String]) -> Option<PathBuf> {
+    args.iter()
+        .position(|argument| argument == "--settings")
+        .and_then(|index| args.get(index + 1))
+        .map(PathBuf::from)
 }
 
 fn default_model_path() -> PathBuf {
@@ -242,10 +295,14 @@ fn help() -> &'static str {
     "Draft desktop
 
 Usage:
-  draft [--model PATH] [--backend auto|vulkan|cpu] [--hotkey NAME] [--no-paste]
+  draft [--model PATH] [--backend auto|vulkan|metal|cuda|cpu] [--hotkey NAME]
+        [--microphone NAME|default] [--no-paste] [--settings PATH]
 
-The default model path is %LOCALAPPDATA%\\Draft\\models\\
-whisper-large-v3-turbo-Q8_0.gguf. Set DRAFT_MODEL_PATH or pass --model to
-override it. Hotkeys: right-ctrl (default), right-alt, f8, f9, pause.
-Hold the hotkey to dictate; release to paste at the cursor."
+Settings live at %LOCALAPPDATA%\\Draft\\settings.json and change from the
+Preferences card. CLI flags override them for this launch. Set
+DRAFT_SETTINGS_PATH to use a different settings file. The default model path is
+%LOCALAPPDATA%\\Draft\\models\\whisper-large-v3-turbo-Q8_0.gguf; set
+DRAFT_MODEL_PATH or pass --model to override it. Hotkeys: right-ctrl (default),
+right-alt, f8, f9, pause, scroll-lock. Hold the hotkey to dictate; release to
+paste at the cursor."
 }

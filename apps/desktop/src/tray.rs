@@ -8,6 +8,7 @@ use tray_icon::{
 };
 
 pub const SHOW_ID: &str = "draft.show";
+pub const HIDE_ID: &str = "draft.hide";
 pub const PASTE_LAST_ID: &str = "draft.paste-last";
 pub const QUIT_ID: &str = "draft.quit";
 
@@ -15,6 +16,7 @@ pub fn build(hotkey: &str) -> Result<TrayIcon> {
     let menu = Menu::new();
     menu.append_items(&[
         &MenuItem::with_id(SHOW_ID, "Show Draft", true, None),
+        &MenuItem::with_id(HIDE_ID, "Hide Draft", true, None),
         &MenuItem::with_id(PASTE_LAST_ID, "Paste last dictation", true, None),
         &PredefinedMenuItem::separator(),
         &MenuItem::with_id(QUIT_ID, "Quit Draft", true, None),

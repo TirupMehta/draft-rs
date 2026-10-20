@@ -10,6 +10,13 @@ Hold a key, speak naturally, and watch accurate text appear at the cursor — on
 every device, fully local, faster than the cloud, with none of the clipboard
 gymnastics.
 
+**Current build (Windows x64, 2026-10-20).** Hold-to-talk dictation, six
+shortcut presets, the tray and click-through HUD, persisted shortcut/microphone/
+model settings, the microphone level check and fallback, and the Vulkan benchmark
+are working. Streaming, history, model downloads, installer/updates,
+macOS/Linux, and mobile are not built yet. Real-speech WER parity is the open
+release gate. [`ROADMAP.md`](ROADMAP.md) is the live checklist.
+
 ## 2. Why this exists
 
 Draft v3 proved the engine: faster-whisper large-v3-turbo on a consumer GPU,
@@ -53,7 +60,7 @@ shell over the same core, not a separate product.
 | Area | Hex today | Draft v4 target |
 | --- | --- | --- |
 | Streaming | Parakeet Unified English only, GPU only | Streaming preview for every dictation; final pass with Whisper large-v3-turbo |
-| Windows GPU | Vulkan, x64 only | Vulkan on x64; CPU on ARM64; optional CUDA later |
+| Windows GPU | Vulkan, x64 only | Vulkan x64; CPU on ARM64; CUDA not pursued on Windows (upstream Linux-only) |
 | Clipboard | Transcript owns the clipboard for ~500 ms after paste | Configurable hold (default 0–50 ms), change-count guard, direct-type fallback |
 | Voice commands | macOS only | Windows-first command grammar, opt-in |
 | Per-app modes | Implemented on macOS/Windows/Linux | Implemented, with a fast application picker and website rules |
@@ -145,38 +152,48 @@ Platform input hook (Win32 hook / CGEventTap / evdev)
 
 ```text
 crates/draft-core/src/lib.rs        platform-neutral facade
-crates/draft-core/src/text.rs       pure text helpers and tests
-crates/draft-core/src/settings.rs   settings schema, migrations, live projection
+crates/draft-core/src/text.rs       pure text helpers and meaningful-text checks
+crates/draft-core/src/settings.rs   schema, atomic persistence, forward-compatible fields
+crates/draft-engine/src/lib.rs      transcribe.cpp model and warm session owner
+crates/draft-audio/src/lib.rs       cpal capture, device selection, level, 16 kHz resample
+crates/draft-hotkey/src/lib.rs      cross-platform hotkey vocabulary and events
+crates/draft-hotkey/src/windows.rs  low-level keyboard hook
+crates/draft-paste/src/windows.rs   clipboard-preserving paste
+crates/draft-cli/src/main.rs        draftctl development CLI
+apps/desktop/src/main.rs            GPUI entry, options, window and HUD creation
+apps/desktop/src/app.rs             shared window, Preferences, phases, tray wiring
+apps/desktop/src/worker.rs          model worker, transcription and paste queue
+apps/desktop/src/hud.rs             click-through recording/transcribing HUD
+apps/desktop/src/tray.rs            tray icon and menu
+apps/desktop/src/window_control.rs  native show/hide and HUD window styles
+apps/desktop/src/theme.rs           design tokens and typography
+```
+
+Planned, not present yet:
+
+```text
 crates/draft-core/src/models.rs     catalog, download, checksum, install/delete
-crates/draft-core/src/engine.rs     transcribe.cpp model + session owner
 crates/draft-core/src/stream.rs     stream state, finish/fallback policy
 crates/draft-core/src/pipeline.rs   corrections, hotwords, transformations
 crates/draft-core/src/history.rs    bounded retained history
 crates/draft-core/src/api.rs        stable C ABI for mobile shells (M7)
-crates/draft-cli/src/main.rs        development CLI
-apps/desktop/src/main.rs            GPUI shell entry and lifecycle
-apps/desktop/src/theme.rs           design tokens and typography
-apps/desktop/src/panes/             settings, history, models, onboarding
-apps/desktop/src/platform/windows/  hook, WASAPI, paste, tray, HUD, UIA, registry
-apps/desktop/src/platform/macos/    event tap, CoreAudio, paste, menu bar, Metal
-apps/desktop/src/platform/linux/    evdev/X11, PipeWire/ALSA, paste, layer-shell HUD
-apps/mobile/ios/                    SwiftUI shell over the C ABI (M7)
-apps/mobile/android/                Compose shell over the C ABI (M7)
+apps/desktop/src/platform/...       macOS/Linux hooks, audio, paste, HUD
+apps/mobile/...                     SwiftUI/Compose shells over the C ABI (M7)
 ```
 
 **Stack**
 
 | Concern | Choice | Why |
 | --- | --- | --- |
-| Desktop UI | GPUI 0.2.x | Native, GPU-rendered, one shell for Windows, macOS, and Linux |
+| Desktop UI | GPUI 0.2.2 (pinned) | Native, GPU-rendered, one shell for Windows, macOS, and Linux |
 | Mobile UI | SwiftUI + Jetpack Compose | Native keyboards and platform background rules; shares the Rust core |
 | Audio | `cpal` | WASAPI, CoreAudio, ALSA/PipeWire capture and device enumeration |
 | Resampling | `rubato` | High-quality 16 kHz conversion |
-| Inference | `transcribe-cpp` | GGUF Whisper large-v3-turbo; Vulkan on Windows (measured ~2× faster than v3.5), Metal on macOS; CUDA is Linux-only upstream |
-| Default model | `whisper-large-v3-turbo` | Same family as Draft v3.5; Parakeet only for preview or opt-in |
-| Clipboard | `arboard` + native synthetic input | Formats, change counts, direct typing |
-| Tray | `tray-icon` + native menu-bar adapters | Native notification-area and menu-bar integration |
-| Platform | `windows-sys`, `objc2`, `x11rb`/Wayland | Hooks, UI Automation, event taps, audio sessions, registry |
+| Inference | `transcribe-cpp` 0.4 | GGUF Whisper large-v3-turbo; Vulkan on Windows (2.9-4.1x faster than v3.5 on the release clips); Metal/CUDA wiring pending, and CUDA is Linux-only upstream |
+| Default model | `whisper-large-v3-turbo-Q8_0.gguf` | Same family as Draft v3.5; 886 MB; F16 is the fallback if WER regresses |
+| Clipboard | `arboard` + native synthetic input | Clipboard preservation plus the platform paste chord |
+| Tray | `tray-icon` 0.24 | Native notification-area integration; macOS/Linux menu-bar adapters later |
+| Platform | `windows-sys`; `objc2`, `x11rb`/Wayland later | Hooks, UI Automation, event taps, audio sessions, registry |
 | Config | `serde` + `serde_json` | Human-readable, atomic writes |
 | Logging | `tracing` | Bounded async NDJSON + human-readable log |
 | Updates | `ed25519-dalek` + custom feed | Signed manifests, version ordering, rollback |
@@ -206,10 +223,11 @@ bounds only; if v3.5 is faster, v3.5 wins.
 ## 10. Data and privacy
 
 - Runtime data lives in the platform application-data directory:
-  `%APPDATA%\Draft\` on Windows, `~/Library/Application Support/Draft/` on
-  macOS, and `$XDG_DATA_HOME/draft/` (or `~/.local/share/draft/`) on Linux.
-  Model files live in the platform cache directory (`%LOCALAPPDATA%\Draft\models`
-  on Windows) and are re-downloadable.
+  `%LOCALAPPDATA%\Draft\settings.json` on Windows,
+  `~/Library/Application Support/Draft/settings.json` on macOS, and
+  `~/.local/share/Draft/settings.json` on Linux. Model files live in
+  `%LOCALAPPDATA%\Draft\models` on Windows and the equivalent platform data
+  directory; they are re-downloadable.
 - Audio is never persisted by default.
 - History stores text and bounded metadata only: no audio, no window titles, no
   full URLs.
@@ -218,6 +236,10 @@ bounds only; if v3.5 is faster, v3.5 wins.
   explicitly configured rewrite provider.
 
 ## 11. Milestones
+
+Status (2026-10-20): M0 is complete on Windows, and the M1 latency/engine slice
+is complete while WER and the repeatable paste run remain. M2 has the basic HUD
+only, and M3 has settings and microphone selection only. M4-M7 are not started.
 
 ### M0 — Scaffold and proof
 
@@ -297,9 +319,8 @@ bounds only; if v3.5 is faster, v3.5 wins.
 
 ## 13. Open decisions
 
-- Final product name and icon.
+- Final icon and visual identity (the product name is Draft).
 - Whether the first release is x64-only or x64 + ARM64 together.
 - Whether iOS or Android ships first in M7.
 - Update feed host and signing key custody.
-- Default shortcut (Right Ctrl vs Ctrl+Space).
 - Whether two-pass streaming is on by default or an "Accuracy" setting.

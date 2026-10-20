@@ -4,19 +4,40 @@
 Rust.
 
 Draft is a native, GPU-accelerated dictation app: hold a key, speak, release,
-and accurate text appears at your cursor. Speech never leaves the machine.
-Streaming previews appear while you talk; the final pass uses Whisper
-large-v3-turbo for accuracy.
+and accurate text appears at your cursor. Speech never leaves the machine. The
+final pass uses Whisper large-v3-turbo, kept warm on the GPU; the capture and
+inference split is built for streaming previews without slowing the final
+transcript.
 
-> **Status:** pre-alpha. The Rust core and desktop shell are being built. The
-> shipping Windows app is still [Draft v3](../Draft).
+> **Status:** pre-alpha. The Windows x64 shell runs the hold-to-talk loop today.
+> macOS, Linux, and mobile are later milestones, and the shipping Windows app is
+> still [Draft v3](../Draft).
+
+## What works today
+
+- Hold Right Ctrl (or Right Alt, F8, F9, Pause, or Scroll Lock), speak, release,
+  and paste locally at the cursor.
+- The model loads once on Vulkan and stays warm; release p95 is 2.9-4.1x faster
+  than Draft v3.5 on the benchmark clips.
+- Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
+- Click-through recording HUD with listening and transcribing states.
+- Preferences persist the shortcut, microphone, and model path to
+  `%LOCALAPPDATA%\Draft\settings.json`; choices survive restart.
+- Microphone picker with a four-second level check and automatic fallback to the
+  system default when a saved device disappears.
+- `draftctl` for transcription, microphone capture, and benchmark runs.
+
+Not yet: streaming partial text, history, model downloads, installer and signed
+updates, macOS/Linux shells, and mobile. Real-speech WER parity with v3.5 is the
+open release gate; see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Why Draft
 
 - **Local.** No cloud, no account, no upload.
 - **Fast.** The same `large-v3-turbo` model as Draft v3, kept warm on the GPU,
   with no Python in the path. Benchmarked against v3.5 every release.
-- **Streaming.** Words appear while you speak.
+- **Ready to stream.** The capture and inference split keeps preview work off
+  the final path; the current build pastes the final transcript only.
 - **Accurate.** Whisper large-v3-turbo for the final transcript.
 - **Polished.** Native GPU-rendered UI, click-through HUD, tray app.
 - **Small.** No Python, no PyTorch; models download on demand.
@@ -65,6 +86,12 @@ Windows:
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 cargo run -p draft-desktop
 ```
+
+The app looks for `%LOCALAPPDATA%\Draft\models\whisper-large-v3-turbo-Q8_0.gguf`.
+Pass `--model PATH` or set `DRAFT_MODEL_PATH` for a local GGUF. The development
+CLI is `cargo run -p draft -- --help` (binary `draftctl`). Run
+`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+and `cargo test --workspace` before committing.
 
 ## License
 

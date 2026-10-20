@@ -42,6 +42,19 @@ impl HotkeyConfig {
         };
         Some(Self { virtual_key, name })
     }
+
+    /// The stable, lowercase identifier written to settings.
+    pub fn id(&self) -> &'static str {
+        match self.virtual_key {
+            VK_RCONTROL => "right-ctrl",
+            VK_RMENU => "right-alt",
+            VK_F8 => "f8",
+            VK_F9 => "f9",
+            VK_PAUSE => "pause",
+            VK_SCROLL => "scroll-lock",
+            _ => "right-ctrl",
+        }
+    }
 }
 
 impl Default for HotkeyConfig {

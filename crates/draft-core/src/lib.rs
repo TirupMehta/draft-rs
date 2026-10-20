@@ -4,4 +4,5 @@
 //! operating system. Desktop and mobile shells own those details and call into
 //! these modules.
 
+pub mod settings;
 pub mod text;

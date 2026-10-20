@@ -8,3 +8,9 @@ rust-version.workspace = true
 description = "Platform-neutral core for Draft: text, settings, models, engine, history."
 
 [dependencies]
+anyhow = "1"
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tracing.workspace = true

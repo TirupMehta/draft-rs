@@ -5,6 +5,7 @@
 //! and resamples once recording has stopped, so the real-time callback stays
 //! small.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,7 +13,7 @@ use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat, Stream, StreamConfig};
 use rubato::{FftFixedIn, Resampler};
-use tracing::info;
+use tracing::{info, warn};
 
 pub const OUTPUT_RATE: u32 = 16_000;
 
@@ -36,18 +37,47 @@ impl Recording {
 pub struct Recorder {
     stream: Stream,
     samples: Arc<Mutex<Vec<f32>>>,
+    level: Arc<AtomicU32>,
     sample_rate: u32,
     channels: usize,
     device: String,
+    fell_back: bool,
 }
 
 impl Recorder {
     /// Open the default microphone and start capturing.
     pub fn start() -> Result<Self> {
+        Self::start_on(None)
+    }
+
+    /// Open a named microphone, falling back to the system default when the
+    /// named device is no longer available. A fallback is reported instead of
+    /// silently rewriting the user's saved choice.
+    pub fn start_on(device_name: Option<&str>) -> Result<Self> {
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .context("no default input device")?;
+        let mut fell_back = false;
+        let device = match device_name {
+            Some(name) => {
+                let selected = host.input_devices().ok().and_then(|mut devices| {
+                    devices.find(|device| device.name().ok().as_deref() == Some(name))
+                });
+                match selected {
+                    Some(device) => device,
+                    None => {
+                        warn!(
+                            requested = name,
+                            "microphone is unavailable; using the default"
+                        );
+                        fell_back = true;
+                        host.default_input_device()
+                            .context("no default input device after the selected one disappeared")?
+                    }
+                }
+            }
+            None => host
+                .default_input_device()
+                .context("no default input device")?,
+        };
         let name = device.name().unwrap_or_else(|_| "default".to_owned());
         let supported = device
             .default_input_config()
@@ -57,11 +87,12 @@ impl Recorder {
         let sample_rate = config.sample_rate.0;
         let channels = usize::from(config.channels);
         let samples = Arc::new(Mutex::new(Vec::new()));
+        let level = Arc::new(AtomicU32::new(0.0_f32.to_bits()));
 
         let stream = match sample_format {
-            SampleFormat::F32 => build_stream::<f32>(&device, &config, &samples, channels),
-            SampleFormat::I16 => build_stream::<i16>(&device, &config, &samples, channels),
-            SampleFormat::U16 => build_stream::<u16>(&device, &config, &samples, channels),
+            SampleFormat::F32 => build_stream::<f32>(&device, &config, &samples, &level, channels),
+            SampleFormat::I16 => build_stream::<i16>(&device, &config, &samples, &level, channels),
+            SampleFormat::U16 => build_stream::<u16>(&device, &config, &samples, &level, channels),
             other => bail!("unsupported sample format: {other:?}"),
         }?;
         stream.play().context("start microphone stream")?;
@@ -71,20 +102,33 @@ impl Recorder {
             sample_rate,
             channels,
             format = ?sample_format,
+            fell_back,
             "microphone open"
         );
 
         Ok(Self {
             stream,
             samples,
+            level,
             sample_rate,
             channels,
             device: name,
+            fell_back,
         })
     }
 
     pub fn device(&self) -> &str {
         &self.device
+    }
+
+    /// The most recent peak amplitude, smoothed by the capture callback.
+    pub fn level(&self) -> f32 {
+        f32::from_bits(self.level.load(Ordering::Relaxed))
+    }
+
+    /// True when the requested device vanished and the default was opened.
+    pub fn fell_back(&self) -> bool {
+        self.fell_back
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -112,15 +156,29 @@ pub fn record_for(duration: Duration) -> Result<Recording> {
 pub fn input_devices() -> Result<Vec<String>> {
     let host = cpal::default_host();
     let devices = host.input_devices().context("enumerate input devices")?;
-    Ok(devices
-        .filter_map(|device| device.name().ok())
-        .collect::<Vec<_>>())
+    let mut names = Vec::new();
+    for device in devices {
+        if let Ok(name) = device.name() {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    Ok(names)
+}
+
+/// The device cpal considers the system default, if one is available.
+pub fn default_input_device_name() -> Option<String> {
+    cpal::default_host()
+        .default_input_device()
+        .and_then(|device| device.name().ok())
 }
 
 fn build_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
     samples: &Arc<Mutex<Vec<f32>>>,
+    level: &Arc<AtomicU32>,
     channels: usize,
 ) -> Result<Stream>
 where
@@ -128,15 +186,24 @@ where
     f32: cpal::FromSample<T>,
 {
     let samples = Arc::clone(samples);
+    let level = Arc::clone(level);
     let stream = device
         .build_input_stream(
             config,
             move |data: &[T], _| {
                 let mut buffer = samples.lock().expect("audio buffer poisoned");
                 buffer.reserve(data.len());
+                let mut peak = 0.0_f32;
                 for &sample in data {
-                    buffer.push(sample.to_sample::<f32>());
+                    let sample = sample.to_sample::<f32>();
+                    peak = peak.max(sample.abs());
+                    buffer.push(sample);
                 }
+                // Decay so a level meter settles on silence instead of
+                // freezing at the last loud buffer.
+                let previous = f32::from_bits(level.load(Ordering::Relaxed));
+                let next = peak.max(previous * 0.82);
+                level.store(next.to_bits(), Ordering::Relaxed);
                 // Bound a stuck recording at roughly ten minutes.
                 let cap = 10 * 60 * 48_000 * channels;
                 if buffer.len() > cap {

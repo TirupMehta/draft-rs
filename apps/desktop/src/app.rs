@@ -1,15 +1,17 @@
 //! The one Draft window: live state, the dictation loop, and the engine
 //! hand-off. The model lives on its own thread; this view only polls events.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use draft_audio::Recorder;
+use draft_core::settings::Settings;
 use draft_engine::{ComputeBackend, EngineTimings};
 use draft_hotkey::{HotkeyConfig, HotkeyEvent, HotkeyListener};
 use gpui::{
-    AnyWindowHandle, Context, Div, Entity, IntoElement, Render, Rgba, Window, div, prelude::*, px,
+    AnyElement, AnyWindowHandle, Context, Div, Entity, IntoElement, Render, Rgba, Window, div,
+    prelude::*, px,
 };
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
@@ -19,6 +21,16 @@ use crate::theme;
 use crate::tray;
 use crate::window_control;
 use crate::worker::{self, Job};
+
+const HOTKEYS: [&str; 6] = [
+    "right-ctrl",
+    "right-alt",
+    "f8",
+    "f9",
+    "pause",
+    "scroll-lock",
+];
+const LEVEL_TEST_LENGTH: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -37,6 +49,11 @@ struct LastResult {
     paste_error: Option<String>,
 }
 
+struct LevelTest {
+    recorder: Recorder,
+    started: Instant,
+}
+
 pub struct DraftApp {
     phase: Phase,
     engine_ready: bool,
@@ -44,16 +61,24 @@ pub struct DraftApp {
     device: Option<String>,
     load_ms: Option<u128>,
     _hotkey: Option<HotkeyListener>,
+    hotkey: HotkeyConfig,
     hotkey_events: Option<Receiver<HotkeyEvent>>,
     hotkey_error: Option<String>,
     hotkey_label: String,
     recorder: Option<Recorder>,
+    level_test: Option<LevelTest>,
+    microphone: Option<String>,
+    microphones: Vec<String>,
+    default_microphone: Option<String>,
     jobs: Sender<Job>,
     worker_events: Receiver<worker::Event>,
     pending_jobs: usize,
     last: Option<LastResult>,
     error: Option<String>,
     notice: Option<String>,
+    model: PathBuf,
+    settings: Settings,
+    settings_path: PathBuf,
     hud: Entity<DraftHud>,
     hud_snapshot: Option<HudSnapshot>,
     hud_visible: bool,
@@ -64,14 +89,36 @@ pub struct DraftApp {
 }
 
 impl DraftApp {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         _cx: &mut Context<Self>,
         model: PathBuf,
         backend: ComputeBackend,
         paste: bool,
         hotkey: HotkeyConfig,
+        microphone: Option<String>,
+        settings: Settings,
+        settings_path: PathBuf,
         hud: Entity<DraftHud>,
     ) -> Self {
+        let microphones = match draft_audio::input_devices() {
+            Ok(devices) => devices,
+            Err(error) => {
+                tracing::warn!(%error, "could not list microphones");
+                Vec::new()
+            }
+        };
+        let default_microphone = draft_audio::default_input_device_name();
+        let mut notice = None;
+        if let Some(saved) = microphone.as_ref() {
+            if !microphones.is_empty() && !microphones.iter().any(|device| device == saved) {
+                notice = Some(format!(
+                    "Saved microphone \"{saved}\" is unavailable; the system default will be used."
+                ));
+            }
+        }
+
+        let model_display = model.clone();
         let (jobs, worker_events) = worker::spawn(model, backend, paste);
         let hotkey_label = hotkey.name.to_owned();
         let tray = match tray::build(&hotkey_label) {
@@ -102,16 +149,24 @@ impl DraftApp {
             device: None,
             load_ms: None,
             _hotkey: listener,
+            hotkey,
             hotkey_events,
             hotkey_error,
             hotkey_label,
             recorder: None,
+            level_test: None,
+            microphone,
+            microphones,
+            default_microphone,
             jobs,
             worker_events,
             pending_jobs: 0,
             last: None,
             error: initial_error,
-            notice: None,
+            notice,
+            model: model_display,
+            settings,
+            settings_path,
             hud,
             hud_snapshot: None,
             hud_visible: false,
@@ -176,6 +231,10 @@ impl DraftApp {
                     self.show_main(cx);
                     changed = true;
                 }
+                tray::HIDE_ID => {
+                    self.hide_main(cx);
+                    changed = true;
+                }
                 tray::PASTE_LAST_ID => {
                     self.paste_last();
                     changed = true;
@@ -186,6 +245,19 @@ impl DraftApp {
                 }
                 _ => {}
             }
+        }
+        if self
+            .level_test
+            .as_ref()
+            .is_some_and(|test| test.started.elapsed() >= LEVEL_TEST_LENGTH)
+        {
+            self.level_test = None;
+            self.notice = Some("Microphone check finished.".to_owned());
+            changed = true;
+        }
+        if self.recorder.is_some() || self.level_test.is_some() {
+            // Keep the level meter moving while audio is open.
+            changed = true;
         }
         self.sync_hud(cx);
         if changed {
@@ -200,6 +272,190 @@ impl DraftApp {
         if let Some(handle) = self.main_window {
             let _ = handle.update(cx, |_, window, _| window.activate_window());
         }
+    }
+
+    fn hide_main(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.main_window {
+            let _ = handle.update(cx, |_, window, _| {
+                window_control::hide(window);
+            });
+        }
+    }
+
+    fn choose_hotkey(&mut self, config: HotkeyConfig, cx: &mut Context<Self>) {
+        if self.hotkey == config {
+            // The runtime key can differ from the saved key when a CLI flag
+            // overrides this launch. Clicking the visible pill should still make
+            // that choice durable for the next launch.
+            if self.settings.hotkey != config.id() {
+                self.settings.hotkey = config.id().to_owned();
+                if self.save_settings() {
+                    self.notice = Some(format!("Dictation key: {}", config.name));
+                }
+                cx.notify();
+            }
+            return;
+        }
+        if self.recorder.is_some() {
+            self.notice = Some("Finish the current dictation before changing the key.".to_owned());
+            cx.notify();
+            return;
+        }
+        if self.restart_hotkey(config) {
+            self.settings.hotkey = config.id().to_owned();
+            if self.save_settings() {
+                self.notice = Some(format!("Dictation key: {}", config.name));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Replace the global hook. The old listener is dropped first so two hooks
+    /// never fight over the same physical key. If the new key cannot be
+    /// registered the previous one is restored.
+    fn restart_hotkey(&mut self, config: HotkeyConfig) -> bool {
+        let previous = self.hotkey;
+        self._hotkey = None;
+        self.hotkey_events = None;
+
+        match draft_hotkey::start(config) {
+            Ok((listener, events)) => {
+                self._hotkey = Some(listener);
+                self.hotkey_events = Some(events);
+                self.hotkey = config;
+                self.hotkey_label = config.name.to_owned();
+                self.update_tray_tooltip();
+                self.hotkey_error = None;
+                self.error = None;
+                if self.engine_ready {
+                    self.refresh_phase();
+                } else {
+                    self.phase = Phase::Loading;
+                }
+                true
+            }
+            Err(error) => {
+                tracing::warn!(%error, key = config.name, "could not switch the dictation key");
+                match draft_hotkey::start(previous) {
+                    Ok((listener, events)) => {
+                        self._hotkey = Some(listener);
+                        self.hotkey_events = Some(events);
+                        self.hotkey_error = None;
+                        self.error = None;
+                        self.notice = Some(format!(
+                            "Could not use {}; kept {}.",
+                            config.name, previous.name
+                        ));
+                        if self.engine_ready {
+                            self.refresh_phase();
+                        } else {
+                            self.phase = Phase::Loading;
+                        }
+                    }
+                    Err(restore_error) => {
+                        let message =
+                            format!("The global hotkey is unavailable: {restore_error:#}");
+                        self.hotkey_error = Some(message.clone());
+                        self.error = Some(message);
+                        self.phase = Phase::Error;
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    fn update_tray_tooltip(&self) {
+        let Some(tray) = self.tray.as_ref() else {
+            return;
+        };
+        let tooltip = format!("Draft - hold {} to dictate", self.hotkey_label);
+        if let Err(error) = tray.set_tooltip(Some(tooltip.as_str())) {
+            tracing::warn!(%error, "could not update the tray tooltip");
+        }
+    }
+
+    fn choose_microphone(&mut self, microphone: Option<String>, cx: &mut Context<Self>) {
+        if self.recorder.is_some() {
+            self.notice =
+                Some("Finish the current dictation before changing the microphone.".to_owned());
+            cx.notify();
+            return;
+        }
+        let changed = self.microphone != microphone;
+        self.level_test = None;
+        self.microphone = microphone.clone();
+        self.settings.microphone = microphone;
+        if changed && self.save_settings() {
+            self.notice = Some("Microphone updated.".to_owned());
+        }
+        cx.notify();
+    }
+
+    fn test_microphone(&mut self, cx: &mut Context<Self>) {
+        if self.recorder.is_some() {
+            self.notice =
+                Some("Finish the current dictation before testing the microphone.".to_owned());
+            cx.notify();
+            return;
+        }
+        if self.level_test.is_some() {
+            self.level_test = None;
+            self.notice = Some("Microphone check stopped.".to_owned());
+            cx.notify();
+            return;
+        }
+
+        match Recorder::start_on(self.microphone.as_deref()) {
+            Ok(recorder) => {
+                self.notice = Some(if recorder.fell_back() {
+                    format!(
+                        "Saved microphone is unavailable; testing {}.",
+                        microphone_display(recorder.device())
+                    )
+                } else {
+                    "Speak to check the level. The check stops after four seconds.".to_owned()
+                });
+                self.level_test = Some(LevelTest {
+                    recorder,
+                    started: Instant::now(),
+                });
+            }
+            Err(error) => {
+                self.notice = Some(format!("Microphone: {error:#}"));
+            }
+        }
+        cx.notify();
+    }
+
+    fn input_level(&self) -> f32 {
+        self.recorder
+            .as_ref()
+            .or_else(|| self.level_test.as_ref().map(|test| &test.recorder))
+            .map(Recorder::level)
+            .unwrap_or(0.0)
+    }
+
+    fn save_settings(&mut self) -> bool {
+        match self.settings.save(&self.settings_path) {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(%error, "could not save settings");
+                self.notice = Some(format!("Could not save settings: {error:#}"));
+                false
+            }
+        }
+    }
+
+    fn use_default_model(&mut self, cx: &mut Context<Self>) {
+        if self.settings.model.is_none() {
+            return;
+        }
+        self.settings.model = None;
+        if self.save_settings() {
+            self.notice = Some("The default model will be used next launch.".to_owned());
+        }
+        cx.notify();
     }
 
     fn paste_last(&mut self) {
@@ -312,8 +568,17 @@ impl DraftApp {
 
         self.error = None;
         self.notice = None;
-        match Recorder::start() {
+        // A level check holds the microphone open. A real dictation takes over
+        // that stream instead of waiting for the check to expire.
+        self.level_test = None;
+        match Recorder::start_on(self.microphone.as_deref()) {
             Ok(recorder) => {
+                if recorder.fell_back() {
+                    self.notice = Some(format!(
+                        "Saved microphone is unavailable; using {}.",
+                        microphone_display(recorder.device())
+                    ));
+                }
                 self.recorder = Some(recorder);
                 self.phase = Phase::Listening;
             }
@@ -431,15 +696,86 @@ impl Render for DraftApp {
             .load_ms
             .map(|load| format!("loaded {:.1} s", load as f64 / 1000.0))
             .unwrap_or_else(|| "one model stays warm".to_owned());
+        let model_name = model_label(&self.model);
+        let model_detail = model_quantization(&self.model);
+        let model_path = self.model.display().to_string();
+        let microphone_label = match &self.microphone {
+            Some(name) => microphone_display(name),
+            None => match &self.default_microphone {
+                Some(name) => format!("System default · {}", microphone_display(name)),
+                None => "System default".to_owned(),
+            },
+        };
+        let level_fill = (self.input_level().sqrt() * 1.25).clamp(0.0, 1.0);
+        let testing = self.level_test.is_some();
 
-        let has_tray = self.tray.is_some();
-        let mut root = div()
-            .size_full()
-            .bg(theme::background())
+        let hotkey_pills = HOTKEYS
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                let config = HotkeyConfig::named(name)?;
+                Some(
+                    choice_pill(config.name, self.hotkey == config)
+                        .id(("hotkey", index))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.choose_hotkey(config, cx)),
+                        ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut microphone_pills = vec![
+            choice_pill("System default", self.microphone.is_none())
+                .id("microphone-default")
+                .on_click(cx.listener(|this, _, _, cx| this.choose_microphone(None, cx))),
+        ];
+        for (index, name) in self.microphones.iter().enumerate() {
+            let selected = self.microphone.as_deref() == Some(name.as_str());
+            let is_default = self.default_microphone.as_deref() == Some(name.as_str());
+            let display = microphone_display(name);
+            let label = if is_default {
+                format!("{display} · default")
+            } else {
+                display
+            };
+            let device = name.clone();
+            microphone_pills.push(
+                choice_pill(label, selected)
+                    .id(("microphone", index))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.choose_microphone(Some(device.clone()), cx)
+                    })),
+            );
+        }
+        let model_action: AnyElement = if self.settings.model.is_some() {
+            div()
+                .id("model-default")
+                .px_3()
+                .py_2()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::border())
+                .text_xs()
+                .text_color(theme::text_muted())
+                .cursor_pointer()
+                .hover(|style| style.text_color(theme::text()))
+                .on_click(cx.listener(|this, _, _, cx| this.use_default_model(cx)))
+                .child("Use default")
+                .into_any_element()
+        } else {
+            div()
+                .text_xs()
+                .text_color(theme::text_muted())
+                .child("Default")
+                .into_any_element()
+        };
+
+        let preferences = div()
+            .bg(theme::surface())
+            .rounded_lg()
+            .p_5()
             .flex()
             .flex_col()
-            .p_8()
-            .gap_5()
+            .gap_4()
             .child(
                 div()
                     .flex()
@@ -447,40 +783,206 @@ impl Render for DraftApp {
                     .justify_between()
                     .child(
                         div()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .w(px(10.0))
-                                    .h(px(10.0))
-                                    .rounded_full()
-                                    .bg(theme::accent()),
-                            )
-                            .child(div().text_2xl().text_color(theme::text()).child("Draft")),
+                            .text_sm()
+                            .text_color(theme::text())
+                            .child("Preferences"),
                     )
                     .child(
                         div()
-                            .id("close")
-                            .px_3()
-                            .py_2()
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(theme::border())
-                            .text_sm()
+                            .text_xs()
                             .text_color(theme::text_muted())
-                            .cursor_pointer()
-                            .hover(|style| style.text_color(theme::text()))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if this.tray.is_some() {
-                                    window_control::hide(window);
-                                } else {
-                                    cx.quit();
-                                }
-                            }))
-                            .child(if has_tray { "Hide" } else { "Quit" }),
+                            .child("Saved locally"),
                     ),
             )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_label("Dictation key"))
+                    .child(div().flex().flex_wrap().gap_2().children(hotkey_pills))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child(
+                                "Hold the key to dictate; release to paste. Changes apply immediately.",
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(section_label("Microphone"))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(theme::text())
+                                            .child(microphone_label),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme::text_muted())
+                                            .child(if self.microphone.is_some() {
+                                                "Saved in settings"
+                                            } else {
+                                                "Follows the system default"
+                                            }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(160.0))
+                                            .h(px(6.0))
+                                            .bg(theme::background())
+                                            .rounded_full()
+                                            .child(
+                                                div()
+                                                    .h_full()
+                                                    .w(px(160.0 * level_fill))
+                                                    .bg(theme::accent())
+                                                    .rounded_full(),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("microphone-test")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_lg()
+                                            .border_1()
+                                            .border_color(theme::border())
+                                            .text_xs()
+                                            .text_color(theme::text_muted())
+                                            .cursor_pointer()
+                                            .hover(|style| style.text_color(theme::text()))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.test_microphone(cx)
+                                            }))
+                                            .child(if testing { "Stop test" } else { "Test" }),
+                                    ),
+                            ),
+                    )
+                    .child(div().flex().flex_wrap().gap_2().children(microphone_pills))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child(
+                                "The level updates while dictating or during a four-second check.",
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_label("Model"))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(theme::text())
+                                            .child(format!("{model_name} · {model_detail}")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme::text_muted())
+                                            .child(model_path),
+                                    ),
+                            )
+                            .child(model_action),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child(
+                                "Set a custom GGUF path with --model or settings.json; restart Draft to load it.",
+                            ),
+                    ),
+            );
+
+        let has_tray = self.tray.is_some();
+        let header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .w(px(10.0))
+                            .h(px(10.0))
+                            .rounded_full()
+                            .bg(theme::accent()),
+                    )
+                    .child(div().text_2xl().text_color(theme::text()).child("Draft")),
+            )
+            .child(
+                div()
+                    .id("close")
+                    .px_3()
+                    .py_2()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme::border())
+                    .text_sm()
+                    .text_color(theme::text_muted())
+                    .cursor_pointer()
+                    .hover(|style| style.text_color(theme::text()))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if this.tray.is_some() {
+                            window_control::hide(window);
+                        } else {
+                            cx.quit();
+                        }
+                    }))
+                    .child(if has_tray { "Hide" } else { "Quit" }),
+            );
+
+        let mut content = div()
+            .id("draft-content")
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            .gap_5()
+            .overflow_y_scroll()
             .child(
                 div()
                     .bg(theme::surface())
@@ -514,13 +1016,10 @@ impl Render for DraftApp {
                         self.hotkey_label.clone(),
                         "hold to dictate".to_owned(),
                     ))
-                    .child(info_row(
-                        "Model",
-                        "Whisper large-v3-turbo".to_owned(),
-                        "Q8_0".to_owned(),
-                    ))
+                    .child(info_row("Model", model_name, model_detail))
                     .child(info_row("Engine", engine, load)),
-            );
+            )
+            .child(preferences);
 
         if let Some(last) = &self.last {
             let mut card = div()
@@ -559,11 +1058,11 @@ impl Render for DraftApp {
                         .child(format!("Paste warning: {error}")),
                 );
             }
-            root = root.child(card);
+            content = content.child(card);
         }
 
         if let Some(error) = &self.error {
-            root = root.child(
+            content = content.child(
                 div()
                     .bg(theme::surface())
                     .rounded_lg()
@@ -574,7 +1073,7 @@ impl Render for DraftApp {
             );
         }
         if let Some(notice) = &self.notice {
-            root = root.child(
+            content = content.child(
                 div()
                     .text_xs()
                     .text_color(theme::text_muted())
@@ -582,14 +1081,30 @@ impl Render for DraftApp {
             );
         }
 
-        root.child(
-            div()
-                .mt_auto()
-                .text_xs()
-                .text_color(theme::text_muted())
-                .child("Local audio. Local text. Nothing leaves this machine."),
-        )
+        div()
+            .id("draft-root")
+            .size_full()
+            .bg(theme::background())
+            .flex()
+            .flex_col()
+            .p_8()
+            .gap_5()
+            .child(header)
+            .child(content)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme::text_muted())
+                    .child("Local audio. Local text. Nothing leaves this machine."),
+            )
     }
+}
+
+fn microphone_display(name: &str) -> String {
+    // Windows friendly names occasionally carry a space before the closing
+    // parenthesis, e.g. "Headset (Rockerz 425 )". Keep the stored name exact for
+    // device matching and clean only what the person sees.
+    name.replace(" )", ")")
 }
 
 fn engine_label(backend: Option<&str>, device: Option<&str>) -> String {
@@ -640,6 +1155,61 @@ fn info_row(label: &'static str, value: String, detail: String) -> Div {
                 .text_color(theme::text_muted())
                 .child(detail),
         )
+}
+
+fn choice_pill(label: impl IntoElement, selected: bool) -> Div {
+    let pill = div()
+        .px_3()
+        .py_2()
+        .rounded_lg()
+        .border_1()
+        .text_xs()
+        .cursor_pointer();
+    if selected {
+        pill.bg(theme::accent())
+            .border_color(theme::accent())
+            .text_color(theme::background())
+            .child(label)
+    } else {
+        pill.border_color(theme::border())
+            .text_color(theme::text_muted())
+            .hover(|style| {
+                style
+                    .text_color(theme::text())
+                    .border_color(theme::text_muted())
+            })
+            .child(label)
+    }
+}
+
+fn section_label(text: &'static str) -> Div {
+    div().text_xs().text_color(theme::text_muted()).child(text)
+}
+
+fn model_label(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("Local model");
+    let lower = stem.to_ascii_lowercase();
+    if lower.contains("large-v3-turbo") {
+        "Whisper large-v3-turbo".to_owned()
+    } else if lower.contains("large-v3") {
+        "Whisper large-v3".to_owned()
+    } else {
+        stem.to_owned()
+    }
+}
+
+fn model_quantization(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("");
+    stem.rsplit_once('-')
+        .map(|(_, quantization)| quantization.to_ascii_uppercase())
+        .filter(|quantization| !quantization.is_empty())
+        .unwrap_or_else(|| "GGUF".to_owned())
 }
 
 fn preview(text: &str) -> String {
