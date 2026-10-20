@@ -8,9 +8,16 @@ use std::time::Duration;
 use draft_audio::Recorder;
 use draft_engine::{ComputeBackend, EngineTimings};
 use draft_hotkey::{HotkeyConfig, HotkeyEvent, HotkeyListener};
-use gpui::{Context, Div, IntoElement, Render, Rgba, Window, div, prelude::*, px};
+use gpui::{
+    AnyWindowHandle, Context, Div, Entity, IntoElement, Render, Rgba, Window, div, prelude::*, px,
+};
+use tray_icon::menu::MenuEvent;
+use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
 
+use crate::hud::{DraftHud, HudSnapshot};
 use crate::theme;
+use crate::tray;
+use crate::window_control;
 use crate::worker::{self, Job};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +54,13 @@ pub struct DraftApp {
     last: Option<LastResult>,
     error: Option<String>,
     notice: Option<String>,
+    hud: Entity<DraftHud>,
+    hud_snapshot: Option<HudSnapshot>,
+    hud_visible: bool,
+    hud_hwnd: Option<isize>,
+    main_window: Option<AnyWindowHandle>,
+    main_hwnd: Option<isize>,
+    tray: Option<TrayIcon>,
 }
 
 impl DraftApp {
@@ -56,9 +70,17 @@ impl DraftApp {
         backend: ComputeBackend,
         paste: bool,
         hotkey: HotkeyConfig,
+        hud: Entity<DraftHud>,
     ) -> Self {
         let (jobs, worker_events) = worker::spawn(model, backend, paste);
         let hotkey_label = hotkey.name.to_owned();
+        let tray = match tray::build(&hotkey_label) {
+            Ok(tray) => Some(tray),
+            Err(error) => {
+                tracing::warn!(%error, "tray icon unavailable");
+                None
+            }
+        };
         let (listener, hotkey_events, hotkey_error) = match draft_hotkey::start(hotkey) {
             Ok((listener, events)) => (Some(listener), Some(events), None),
             Err(error) => (
@@ -90,6 +112,31 @@ impl DraftApp {
             last: None,
             error: initial_error,
             notice: None,
+            hud,
+            hud_snapshot: None,
+            hud_visible: false,
+            hud_hwnd: None,
+            main_window: None,
+            main_hwnd: None,
+            tray,
+        }
+    }
+
+    pub fn has_tray(&self) -> bool {
+        self.tray.is_some()
+    }
+
+    pub fn attach_windows(
+        &mut self,
+        main_window: Option<AnyWindowHandle>,
+        main_hwnd: Option<isize>,
+        hud_hwnd: Option<isize>,
+    ) {
+        self.main_window = main_window;
+        self.main_hwnd = main_hwnd;
+        self.hud_hwnd = hud_hwnd;
+        if let Some(hwnd) = self.hud_hwnd {
+            window_control::set_hud_visible(hwnd, false);
         }
     }
 
@@ -106,8 +153,88 @@ impl DraftApp {
             }
             self.hotkey_events = Some(events);
         }
+        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            match event {
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+                | TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    self.show_main(cx);
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            match event.id.as_ref() {
+                tray::SHOW_ID => {
+                    self.show_main(cx);
+                    changed = true;
+                }
+                tray::PASTE_LAST_ID => {
+                    self.paste_last();
+                    changed = true;
+                }
+                tray::QUIT_ID => {
+                    cx.quit();
+                    return;
+                }
+                _ => {}
+            }
+        }
+        self.sync_hud(cx);
         if changed {
             cx.notify();
+        }
+    }
+
+    fn show_main(&mut self, cx: &mut Context<Self>) {
+        if let Some(hwnd) = self.main_hwnd {
+            window_control::show(hwnd);
+        }
+        if let Some(handle) = self.main_window {
+            let _ = handle.update(cx, |_, window, _| window.activate_window());
+        }
+    }
+
+    fn paste_last(&mut self) {
+        let Some(last) = self.last.as_ref() else {
+            self.notice = Some("No completed dictation yet.".to_owned());
+            return;
+        };
+        let text = last.text.clone();
+        self.notice = Some("Pasting the last dictation.".to_owned());
+        std::thread::spawn(move || {
+            if let Err(error) = draft_paste::paste_text(&text) {
+                tracing::warn!(%error, "could not paste the last dictation");
+            }
+        });
+    }
+
+    fn sync_hud(&mut self, cx: &mut Context<Self>) {
+        let snapshot = match self.phase {
+            Phase::Listening => Some(HudSnapshot::listening(&self.hotkey_label)),
+            Phase::Transcribing => Some(HudSnapshot::transcribing()),
+            Phase::Loading | Phase::Ready | Phase::Error => None,
+        };
+        if snapshot == self.hud_snapshot {
+            return;
+        }
+
+        let was_visible = self.hud_visible;
+        let visible = snapshot.is_some();
+        self.hud_snapshot = snapshot.clone();
+        self.hud.update(cx, |hud, cx| hud.set(snapshot, cx));
+        if visible != was_visible {
+            if let Some(hwnd) = self.hud_hwnd {
+                window_control::set_hud_visible(hwnd, visible);
+            }
+            self.hud_visible = visible;
         }
     }
 
@@ -305,6 +432,7 @@ impl Render for DraftApp {
             .map(|load| format!("loaded {:.1} s", load as f64 / 1000.0))
             .unwrap_or_else(|| "one model stays warm".to_owned());
 
+        let has_tray = self.tray.is_some();
         let mut root = div()
             .size_full()
             .bg(theme::background())
@@ -333,7 +461,7 @@ impl Render for DraftApp {
                     )
                     .child(
                         div()
-                            .id("quit")
+                            .id("close")
                             .px_3()
                             .py_2()
                             .rounded_lg()
@@ -343,8 +471,14 @@ impl Render for DraftApp {
                             .text_color(theme::text_muted())
                             .cursor_pointer()
                             .hover(|style| style.text_color(theme::text()))
-                            .on_click(cx.listener(|_, _, _, cx| cx.quit()))
-                            .child("Quit"),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.tray.is_some() {
+                                    window_control::hide(window);
+                                } else {
+                                    cx.quit();
+                                }
+                            }))
+                            .child(if has_tray { "Hide" } else { "Quit" }),
                     ),
             )
             .child(

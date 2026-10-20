@@ -4,7 +4,10 @@
 //! app has focus. The engine thread loads and warms one model at launch.
 
 mod app;
+mod hud;
 mod theme;
+mod tray;
+mod window_control;
 mod worker;
 
 use std::path::PathBuf;
@@ -14,7 +17,8 @@ use draft_engine::ComputeBackend;
 use draft_hotkey::HotkeyConfig;
 use gpui::prelude::*;
 use gpui::{
-    App, Application, Bounds, Timer, TitlebarOptions, WindowBounds, WindowOptions, px, size,
+    App, Application, Bounds, Timer, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
+    WindowKind, WindowOptions, point, px, size,
 };
 
 fn main() -> color_eyre::Result<()> {
@@ -29,6 +33,7 @@ fn main() -> color_eyre::Result<()> {
     let options = parse_options();
 
     Application::new().run(move |cx: &mut App| {
+        let hud = cx.new(|_| hud::DraftHud::new());
         let app = cx.new(|cx| {
             app::DraftApp::new(
                 cx,
@@ -36,6 +41,7 @@ fn main() -> color_eyre::Result<()> {
                 options.backend,
                 options.paste,
                 options.hotkey,
+                hud.clone(),
             )
         });
 
@@ -55,6 +61,73 @@ fn main() -> color_eyre::Result<()> {
             )
             .expect("could not open the Draft window");
 
+        let main_handle = cx.active_window();
+        let tray_available = app.read(cx).has_tray();
+        let main_hwnd = window
+            .update(cx, |_, window, cx| {
+                let hwnd = window_control::hwnd(window);
+                window.on_window_should_close(cx, move |window, _| {
+                    if tray_available {
+                        !window_control::hide(window)
+                    } else {
+                        true
+                    }
+                });
+                window.activate_window();
+                hwnd
+            })
+            .ok()
+            .flatten();
+
+        let hud_size = size(px(440.0), px(96.0));
+        let screen = cx
+            .primary_display()
+            .or_else(|| cx.displays().into_iter().next())
+            .expect("Draft needs a display")
+            .bounds();
+        let hud_bounds = Bounds {
+            origin: point(
+                screen.center().x - hud_size.center().x,
+                screen.origin.y + screen.size.height - hud_size.height - px(92.0),
+            ),
+            size: hud_size,
+        };
+        let hud_window = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(hud_bounds)),
+                    titlebar: None,
+                    focus: false,
+                    show: true,
+                    kind: WindowKind::PopUp,
+                    is_movable: false,
+                    is_resizable: false,
+                    is_minimizable: false,
+                    window_background: WindowBackgroundAppearance::Transparent,
+                    app_id: Some("in.tirup.draft.hud".into()),
+                    ..Default::default()
+                },
+                move |_, _| hud.clone(),
+            )
+            .expect("could not open the Draft HUD");
+        let hud_hwnd = hud_window
+            .update(cx, |_, window, cx| {
+                // The HUD has no close affordance and must outlive every
+                // dictation. A stray WM_CLOSE (for example from a launcher
+                // that picks the first top-level window) is ignored.
+                window.on_window_should_close(cx, |_, _| false);
+                window_control::hwnd(window)
+            })
+            .ok()
+            .flatten();
+        if let Some(hwnd) = hud_hwnd {
+            window_control::configure_hud(hwnd);
+        }
+
+        app.update(cx, |app, _| {
+            app.attach_windows(main_handle, main_hwnd, hud_hwnd);
+        });
+
         let poll_app = app.clone();
         cx.spawn(async move |cx| {
             loop {
@@ -65,16 +138,6 @@ fn main() -> color_eyre::Result<()> {
             }
         })
         .detach();
-
-        window
-            .update(cx, |_, window, cx| {
-                window.on_window_should_close(cx, |_, cx| {
-                    cx.quit();
-                    true
-                });
-                window.activate_window();
-            })
-            .ok();
     });
 
     Ok(())

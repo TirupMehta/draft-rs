@@ -12,6 +12,7 @@ name = "draft"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
 color-eyre = "0.6"
 dirs = "6"
 draft-audio.workspace = true
@@ -23,5 +24,13 @@ gpui = { version = "0.2.2", default-features = false, features = [
   "font-kit",
   "windows-manifest",
 ] }
+raw-window-handle = "0.6"
+tray-icon = "0.24"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+] }
