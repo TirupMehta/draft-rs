@@ -1,6 +1,6 @@
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use draft_core::text;
 
-mod text;
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

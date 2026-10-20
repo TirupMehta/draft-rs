@@ -1,0 +1,15 @@
+[package]
+name = "draft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Local-first, streaming voice dictation."
+
+[[bin]]
+name = "draft"
+path = "src/main.rs"
+
+[dependencies]
+draft-core.workspace = true

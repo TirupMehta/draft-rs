@@ -6,8 +6,9 @@
 
 ## 1. One line
 
-Hold a key, speak naturally, and watch accurate text appear at the cursor — fully
-local, faster than the cloud, with none of the clipboard gymnastics.
+Hold a key, speak naturally, and watch accurate text appear at the cursor — on
+every device, fully local, faster than the cloud, with none of the clipboard
+gymnastics.
 
 ## 2. Why this exists
 
@@ -40,7 +41,12 @@ architecture only; no Hex code, assets, copy, or branding is used.
 - A developer or writer who dictates prompts, emails, notes, and long-form text.
 - A multilingual user who switches languages and wants names spelled correctly.
 - A privacy-sensitive user who refuses cloud dictation.
-- Windows 10/11 on x64 and ARM64 first; macOS and Linux later.
+- A user who moves between a Windows PC, a Mac, a Linux workstation, and a
+  phone without changing how dictation works.
+
+Desktop is the first target: Windows 10/11 on x64 and ARM64, macOS on Apple
+silicon, and Linux on X11 and compatible Wayland compositors. Mobile is a later
+shell over the same core, not a separate product.
 
 ## 5. The "better than Hex" contract
 
@@ -54,14 +60,14 @@ architecture only; no Hex code, assets, copy, or branding is used.
 | Install size | Native app + models | Native app under ~60 MB; no Python or PyTorch |
 | Installer | Unsigned, SmartScreen warning | Signed installer and signed updates (when certificate is available) |
 | Updates | Signed feed | Signed feed with resumable downloads and rollback |
-| Platforms | macOS primary; Windows/Linux beta | Windows first-class; macOS/Linux after parity |
+| Platforms | macOS primary; Windows/Linux beta | Windows, macOS, and Linux first-class; iOS/Android shells later |
 | Onboarding | Guided, with practice step | Guided, with a real 10-second practice dictation and live diagnostics |
 
 ## 6. Features
 
 ### MVP (M1–M3)
 
-- Resident tray app with a native settings window.
+- Resident desktop app with a native settings window and menu-bar/tray icon.
 - Hold-to-talk and toggle modes; configurable shortcut, including modifier-only
   bindings such as Right Ctrl and key chords such as Ctrl+Space.
 - Microphone picker, live input level, and device fallback.
@@ -86,7 +92,7 @@ architecture only; no Hex code, assets, copy, or branding is used.
   punctuation, custom TypeScript later.
 - Optional LLM rewrite through a local OpenAI-compatible endpoint. Off by
   default; failed rewrite preserves the local transcript.
-- Voice commands on Windows: "scratch that", "new paragraph", "new line",
+- Voice commands on desktop: "scratch that", "new paragraph", "new line",
   "send it", "select all", "press enter".
 - Signed installer, silent per-user install, Start Menu entry, clean uninstall.
 - Signed auto-update with version ordering, checksum verification, and rollback.
@@ -94,7 +100,9 @@ architecture only; no Hex code, assets, copy, or branding is used.
 
 ### Later
 
-- macOS (Metal) and Linux (Vulkan) shells.
+- macOS (Metal) and Linux (Vulkan) desktop shells.
+- iOS and Android shells over the same core, with native keyboards and
+  platform-appropriate background limits.
 - Meetings and system-audio capture.
 - Local transcription API/SDK.
 - Semantic history search.
@@ -104,14 +112,14 @@ architecture only; no Hex code, assets, copy, or branding is used.
 - Cloud transcription.
 - Accounts, sync, or telemetry.
 - Meeting recording.
-- Mobile apps.
+- Mobile apps (M7, after the desktop core is stable).
 - A plugin marketplace.
 - Rewriting the user's words without an explicit opt-in.
 
 ## 8. Architecture
 
 ```ts
-Windows low-level keyboard hook
+Platform input hook (Win32 hook / CGEventTap / evdev)
   -> Shortcut state machine (hold, toggle, double-tap lock, Escape)
   -> Capture owner (authoritative 16 kHz mono timeline, bounded ring buffer)
        |-> live audio chunks -> inference thread -> stream preview -> HUD
@@ -136,40 +144,42 @@ Windows low-level keyboard hook
 **Module layout**
 
 ```text
-src/main.rs                 CLI entry, logging, single-instance guard
-src/app.rs                  app lifecycle, tray, window, listeners
-src/core/settings.rs        settings.json, migrations, live projection
-src/core/models.rs          catalog, download, checksum, install/delete
-src/core/engine.rs          transcribe.cpp model + session owner
-src/core/stream.rs          stream state, finish/fallback policy
-src/core/pipeline.rs        corrections, hotwords, transformations
-src/core/history.rs         bounded retained history
-src/core/text.rs            pure text helpers and tests
-src/platform/windows/hotkeys.rs
-src/platform/windows/audio.rs
-src/platform/windows/paste.rs
-src/platform/windows/tray.rs
-src/platform/windows/hud.rs
-src/platform/windows/context.rs
-src/platform/windows/login.rs
-src/platform/windows/updater.rs
-src/ui/                     GPUI shell, settings panes, onboarding, theme
+crates/draft-core/src/lib.rs        platform-neutral facade
+crates/draft-core/src/text.rs       pure text helpers and tests
+crates/draft-core/src/settings.rs   settings schema, migrations, live projection
+crates/draft-core/src/models.rs     catalog, download, checksum, install/delete
+crates/draft-core/src/engine.rs     transcribe.cpp model + session owner
+crates/draft-core/src/stream.rs     stream state, finish/fallback policy
+crates/draft-core/src/pipeline.rs   corrections, hotwords, transformations
+crates/draft-core/src/history.rs    bounded retained history
+crates/draft-core/src/api.rs        stable C ABI for mobile shells (M7)
+crates/draft-cli/src/main.rs        development CLI
+apps/desktop/src/main.rs            GPUI shell entry and lifecycle
+apps/desktop/src/theme.rs           design tokens and typography
+apps/desktop/src/panes/             settings, history, models, onboarding
+apps/desktop/src/platform/windows/  hook, WASAPI, paste, tray, HUD, UIA, registry
+apps/desktop/src/platform/macos/    event tap, CoreAudio, paste, menu bar, Metal
+apps/desktop/src/platform/linux/    evdev/X11, PipeWire/ALSA, paste, layer-shell HUD
+apps/mobile/ios/                    SwiftUI shell over the C ABI (M7)
+apps/mobile/android/                Compose shell over the C ABI (M7)
 ```
 
 **Stack**
 
 | Concern | Choice | Why |
 | --- | --- | --- |
-| UI | GPUI 0.2.x | Native, GPU-rendered, proven on Windows, closest to Hex's feel |
-| Audio | `cpal` | WASAPI capture, device enumeration, low latency |
+| Desktop UI | GPUI 0.2.x | Native, GPU-rendered, one shell for Windows, macOS, and Linux |
+| Mobile UI | SwiftUI + Jetpack Compose | Native keyboards and platform background rules; shares the Rust core |
+| Audio | `cpal` | WASAPI, CoreAudio, ALSA/PipeWire capture and device enumeration |
 | Resampling | `rubato` | High-quality 16 kHz conversion |
-| Inference | `transcribe-cpp` | GGUF Parakeet/Whisper, Vulkan/CUDA/Metal, one Rust API |
-| Clipboard | `arboard` + Win32 `SendInput` | Formats, change counts, direct typing |
-| Tray | `tray-icon` | Native notification-area icon |
-| Win32 | `windows-sys` / `windows` | Hooks, UI Automation, audio sessions, registry |
+| Inference | `transcribe-cpp` | GGUF Parakeet/Whisper, Vulkan/CUDA/Metal/CPU, one Rust API |
+| Clipboard | `arboard` + native synthetic input | Formats, change counts, direct typing |
+| Tray | `tray-icon` + native menu-bar adapters | Native notification-area and menu-bar integration |
+| Platform | `windows-sys`, `objc2`, `x11rb`/Wayland | Hooks, UI Automation, event taps, audio sessions, registry |
 | Config | `serde` + `serde_json` | Human-readable, atomic writes |
 | Logging | `tracing` | Bounded async NDJSON + human-readable log |
 | Updates | `ed25519-dalek` + custom feed | Signed manifests, version ordering, rollback |
+| Mobile bridge | C ABI + generated bindings | Keeps `draft-core` free of UI and OS dependencies |
 
 ## 9. Performance budgets
 
@@ -186,8 +196,11 @@ clean Windows VM.
 
 ## 10. Data and privacy
 
-- Runtime data lives in `%APPDATA%\Draft\` (settings, history, logs) and
-  `%LOCALAPPDATA%\Draft\models\` (model files).
+- Runtime data lives in the platform application-data directory:
+  `%APPDATA%\Draft\` on Windows, `~/Library/Application Support/Draft/` on
+  macOS, and `$XDG_DATA_HOME/draft/` (or `~/.local/share/draft/`) on Linux.
+  Model files live in the platform cache directory (`%LOCALAPPDATA%\Draft\models`
+  on Windows) and are re-downloadable.
 - Audio is never persisted by default.
 - History stores text and bounded metadata only: no audio, no window titles, no
   full URLs.
@@ -202,8 +215,8 @@ clean Windows VM.
 - Repo, license, CI, formatting, Clippy.
 - Rust toolchain and Windows build prerequisites documented.
 - A GPUI window opens; tray icon appears; global hook logs a chord.
-- **Done when:** `cargo run` shows the window and the hook toggles a log line on
-  a real Windows machine.
+- **Done when:** `cargo run -p draft` shows the window and the hook toggles a log
+  line on a real Windows machine. macOS and Linux are proven in M6.
 
 ### M1 — Dictation MVP
 
@@ -230,9 +243,10 @@ clean Windows VM.
 
 ### M4 — Distribution
 
-- Inno Setup or NSIS per-user installer.
+- Windows per-user installer (Inno Setup or NSIS) with Start Menu, launch at
+  login, and uninstall that keeps user data.
 - Signed update feed, version ordering, checksum, rollback.
-- Start Menu, launch at login, uninstall that keeps user data.
+- macOS and Linux packaging follow their platform rules in M6.
 - **Done when:** install → update → uninstall works on a clean Windows VM.
 
 ### M5 — Modes and commands
@@ -243,10 +257,22 @@ clean Windows VM.
 - **Done when:** a mode for VS Code applies only in VS Code and a global mode
   applies everywhere else.
 
-### M6 — Cross-platform
+### M6 — Desktop everywhere
 
 - macOS shell (Metal) and Linux shell (Vulkan) over the same core.
-- **Done when:** the same settings and pipeline run on all three platforms.
+- Per-platform permissions, hotkeys, audio devices, paste, tray/menu bar, and
+  installers.
+- **Done when:** the same settings and pipeline run on all three desktop
+  platforms and a dictation started on one platform has the same behavior on the
+  others.
+
+### M7 — Mobile
+
+- Stable C ABI for `draft-core` plus generated Swift and Kotlin bindings.
+- iOS keyboard extension and Android IME.
+- Platform background limits, model storage, and memory budgets.
+- **Done when:** dictation works in a third-party app on a physical iPhone and a
+  physical Android phone without a cloud round trip.
 
 ## 12. Risks and mitigations
 
@@ -257,12 +283,14 @@ clean Windows VM.
 | Model quality vs Draft v3 | Keep Whisper turbo as the final pass; measure WER on a fixed corpus before switching defaults |
 | ARM64 performance | CPU-first; benchmark before promising GPU |
 | Signing cost | Ship unsigned with clear SmartScreen guidance until a certificate exists |
+| Mobile background limits | Keep mobile in M7; design the core around explicit start/stop and a bounded capture lease |
 | Scope creep | M0–M2 ship a complete dictation loop before any mode or meeting work |
 
 ## 13. Open decisions
 
 - Final product name and icon.
 - Whether the first release is x64-only or x64 + ARM64 together.
+- Whether iOS or Android ships first in M7.
 - Update feed host and signing key custody.
 - Default shortcut (Right Ctrl vs Ctrl+Space).
 - Whether two-pass streaming is on by default or an "Accuracy" setting.

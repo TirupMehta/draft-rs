@@ -1,13 +1,16 @@
-[package]
-name = "draft"
+[workspace]
+members = ["crates/draft-core", "crates/draft-cli"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Local-first, streaming voice dictation for Windows."
 repository = "https://github.com/TirupMehta/draft-rs"
-default-run = "draft"
+rust-version = "1.85"
 
-[dependencies]
+[workspace.dependencies]
+draft-core = { path = "crates/draft-core" }
 
 [profile.release]
 lto = "thin"

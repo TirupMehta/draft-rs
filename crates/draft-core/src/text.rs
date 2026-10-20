@@ -50,7 +50,10 @@ pub fn clean_text(input: &str, trailing_space: bool) -> String {
         while let Some(ch) = chars.next() {
             if ch == ' ' {
                 let next = chars.peek().copied();
-                if matches!(next, Some(',' | '.' | '!' | '?' | ';' | ':' | ')' | ']' | '}')) {
+                if matches!(
+                    next,
+                    Some(',' | '.' | '!' | '?' | ';' | ':' | ')' | ']' | '}')
+                ) {
                     continue;
                 }
                 if out.ends_with(' ') || out.ends_with('\n') {
@@ -188,7 +191,10 @@ pub fn remove_fillers(input: &str) -> String {
         let word = token.trim_end_matches(char::is_whitespace);
         let trailing = &token[word.len()..];
         let core = word.trim_matches(|ch: char| !ch.is_alphanumeric());
-        if FILLERS.iter().any(|filler| core.eq_ignore_ascii_case(filler)) {
+        if FILLERS
+            .iter()
+            .any(|filler| core.eq_ignore_ascii_case(filler))
+        {
             // Drop the filler and any punctuation attached to it. The next
             // word still gets exactly one separating space.
             pending_space = !out.is_empty();
@@ -265,19 +271,16 @@ mod tests {
 
     #[test]
     fn preserves_paragraph_breaks() {
-        assert_eq!(
-            clean_text("hello\n\nworld", false),
-            "Hello\n\nWorld"
-        );
-        assert_eq!(
-            clean_text("hello\nworld", false),
-            "Hello\nWorld"
-        );
+        assert_eq!(clean_text("hello\n\nworld", false), "Hello\n\nWorld");
+        assert_eq!(clean_text("hello\nworld", false), "Hello\nWorld");
     }
 
     #[test]
     fn does_not_space_decimals() {
-        assert_eq!(clean_text("version 1,000.50 is ready", false), "Version 1,000.50 is ready");
+        assert_eq!(
+            clean_text("version 1,000.50 is ready", false),
+            "Version 1,000.50 is ready"
+        );
     }
 
     #[test]
@@ -303,7 +306,10 @@ mod tests {
 
     #[test]
     fn corrections_are_case_insensitive() {
-        let corrections = vec![Correction::new("model registry tirup in", "modelregistry.tirup.in")];
+        let corrections = vec![Correction::new(
+            "model registry tirup in",
+            "modelregistry.tirup.in",
+        )];
         assert_eq!(
             apply_corrections("go to Model Registry Tirup In now", &corrections),
             "go to modelregistry.tirup.in now"
@@ -314,14 +320,20 @@ mod tests {
     fn removes_fillers_but_keeps_punctuation() {
         assert_eq!(remove_fillers("um hello uh world."), "hello world.");
         assert_eq!(remove_fillers("hello, um, world"), "hello, world");
-        assert_eq!(remove_fillers("humming is not a filler"), "humming is not a filler");
+        assert_eq!(
+            remove_fillers("humming is not a filler"),
+            "humming is not a filler"
+        );
     }
 
     #[test]
     fn removes_only_trailing_sentence_punctuation() {
         assert_eq!(no_trailing_punctuation("hello there."), "hello there");
         assert_eq!(no_trailing_punctuation("really?!"), "really");
-        assert_eq!(no_trailing_punctuation("hello. keep this."), "hello. keep this");
+        assert_eq!(
+            no_trailing_punctuation("hello. keep this."),
+            "hello. keep this"
+        );
         assert_eq!(no_trailing_punctuation("hello.\""), "hello.\"");
         assert_eq!(no_trailing_punctuation("no punctuation"), "no punctuation");
     }
