@@ -1,6 +1,10 @@
 [workspace]
 members = [
     "crates/draft-core",
+    "crates/draft-engine",
+    "crates/draft-audio",
+    "crates/draft-hotkey",
+    "crates/draft-paste",
     "crates/draft-cli",
     "apps/desktop",
 ]
@@ -15,6 +19,12 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 draft-core = { path = "crates/draft-core" }
+draft-engine = { path = "crates/draft-engine" }
+draft-audio = { path = "crates/draft-audio" }
+draft-hotkey = { path = "crates/draft-hotkey" }
+draft-paste = { path = "crates/draft-paste" }
+thiserror = "2"
+tracing = "0.1"
 
 [profile.release]
 lto = "thin"

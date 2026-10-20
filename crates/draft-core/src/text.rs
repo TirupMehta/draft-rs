@@ -120,6 +120,15 @@ pub fn clean_text(input: &str, trailing_space: bool) -> String {
     out
 }
 
+/// Whether a cleaned transcript contains something worth inserting.
+///
+/// The model can emit only punctuation for silence, noise, or a clipped breath.
+/// Pasting a lone `.` is worse than treating the capture as empty, so every
+/// shell uses this as the final gate before insertion.
+pub fn is_meaningful(input: &str) -> bool {
+    input.chars().any(char::is_alphanumeric)
+}
+
 /// A single taught correction: what the model tends to hear, and what should be
 /// written instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -360,6 +369,17 @@ mod tests {
         );
         assert_eq!(no_trailing_punctuation("hello.\""), "hello.\"");
         assert_eq!(no_trailing_punctuation("no punctuation"), "no punctuation");
+    }
+
+    #[test]
+    fn silence_punctuation_is_not_meaningful() {
+        assert!(!is_meaningful(""));
+        assert!(!is_meaningful("."));
+        assert!(!is_meaningful(" ... "));
+        assert!(!is_meaningful("?!"));
+        assert!(is_meaningful("Hi."));
+        assert!(is_meaningful("42"));
+        assert!(is_meaningful("Привет"));
     }
 
     #[test]

@@ -15,6 +15,7 @@ Audio is not committed: it is large, personal, and easy to regenerate. Put
 | `tts-15s.wav` | Names, date, list, punctuation |
 | `tts-30s.wav` | Two paragraphs |
 | `tts-60s.wav` | Four paragraphs |
+| `real-jfk.wav` | Public-domain real speech for an accuracy sanity check |
 | `multilingual-10s.wav` | Optional: non-English sentence with a proper noun |
 
 Record all fixtures with the same microphone and room for a fair comparison.
@@ -31,16 +32,30 @@ python .\bench\trim_fixtures.py
 TTS clips are fine for latency and engine bake-offs. Use real recordings for
 WER and multilingual quality.
 
-## Running
-
-Once the benchmark CLI lands:
+For a quick real-speech fixture, download Whisper's public-domain JFK sample:
 
 ```powershell
-cargo run -p draft -- bench --fixtures bench/fixtures --runs 10 --json bench/results/local.json
+Invoke-WebRequest `
+  -Uri https://raw.githubusercontent.com/ggerganov/whisper.cpp/master/samples/jfk.wav `
+  -OutFile .\bench\fixtures\real-jfk.wav
 ```
 
-The harness runs one warmup plus `--runs` measured passes per fixture, reports
-p50/p95, and compares against `bench/baseline.json` when it exists.
+## Running
+
+`cargo run -p draft` runs the `draftctl` development binary:
+
+```powershell
+cargo run -p draft -- bench `
+  --model C:\all\models\whisper-large-v3-turbo-Q8_0.gguf `
+  --backend vulkan `
+  --fixtures bench/fixtures `
+  --warmup 2 --runs 10 `
+  --json bench/results/rust.json
+```
+
+The harness loads one model, runs the warm-up passes, then measures each clip.
+It reports p50/p95 and the engine stage timings; `compare_bakeoff.py` compares
+the result with `bench/baseline.json`.
 
 ## Engine bake-off
 

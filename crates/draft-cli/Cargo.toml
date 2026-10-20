@@ -8,8 +8,16 @@ rust-version.workspace = true
 description = "Local-first, streaming voice dictation."
 
 [[bin]]
-name = "draft"
+name = "draftctl"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
+draft-audio.workspace = true
 draft-core.workspace = true
+draft-engine.workspace = true
+draft-hotkey.workspace = true
+draft-paste.workspace = true
+hound = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -118,6 +118,9 @@ What the numbers mean:
   the 340 ms Whisper encoder pass, not setup.
 - Decode is only ~60 ms for a 3-second clip; host BLAS would not move the
   number, so Windows does not need OpenBLAS.
+- Q8_0 was selected over F16: the publisher's evaluation reports 2.01% WER for
+  both, while Q8_0 is 886 MB versus 1.63 GB. F16 is not a free accuracy upgrade,
+  so it is not the default candidate.
 - The first Vulkan run is much slower because it compiles compute pipelines.
   Warm-up is mandatory: the app must prewarm the backend and model at launch,
   before the first dictation.

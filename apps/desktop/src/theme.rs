@@ -24,3 +24,15 @@ pub fn text_muted() -> Rgba {
 pub fn accent() -> Rgba {
     rgb(0xd9a441)
 }
+
+pub fn border() -> Rgba {
+    rgb(0x3a2e22)
+}
+
+pub fn success() -> Rgba {
+    rgb(0x8fbf7a)
+}
+
+pub fn danger() -> Rgba {
+    rgb(0xe07a5f)
+}

@@ -1,0 +1,19 @@
+[package]
+name = "draft-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Warm local speech engine for Draft."
+
+[features]
+default = ["vulkan"]
+vulkan = ["transcribe-cpp/vulkan"]
+metal = ["transcribe-cpp/metal"]
+cuda = ["transcribe-cpp/cuda"]
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+transcribe-cpp = { version = "0.4.0", default-features = false }

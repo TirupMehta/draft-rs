@@ -13,7 +13,12 @@ path = "src/main.rs"
 
 [dependencies]
 color-eyre = "0.6"
+dirs = "6"
+draft-audio.workspace = true
 draft-core.workspace = true
+draft-engine.workspace = true
+draft-hotkey.workspace = true
+draft-paste.workspace = true
 gpui = { version = "0.2.2", default-features = false, features = [
   "font-kit",
   "windows-manifest",
