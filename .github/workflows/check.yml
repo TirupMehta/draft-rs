@@ -3,24 +3,75 @@ name: check
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+      - 'LICENSE'
   workflow_dispatch:
 
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  VULKAN_SDK_VERSION: 1.4.363.0
+
 jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - name: Restore the Vulkan SDK
+        id: vulkan
+        uses: actions/cache@v4
+        with:
+          path: C:/VulkanSDK/${{ env.VULKAN_SDK_VERSION }}
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-windows-x64
+      - name: Install the Vulkan SDK
+        if: steps.vulkan.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $version = $env:VULKAN_SDK_VERSION
+          $url = "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe"
+          $installer = Join-Path $env:RUNNER_TEMP 'vulkansdk.exe'
+          curl.exe -sSfL --retry 3 --retry-delay 5 -o $installer $url
+          $root = "C:\VulkanSDK\$version"
+          $installerArgs = @(
+            '--root', $root,
+            '--accept-licenses',
+            '--default-answer',
+            '--confirm-command',
+            'install'
+          )
+          $process = Start-Process -FilePath $installer -ArgumentList $installerArgs -Verb RunAs -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "the Vulkan SDK installer exited with $($process.ExitCode)"
+          }
+          if (-not (Test-Path (Join-Path $root 'Bin\glslc.exe'))) {
+            throw "the Vulkan SDK at $root is missing Bin\glslc.exe"
+          }
+      - name: Use the Vulkan SDK
+        shell: pwsh
+        run: |
+          $sdk = "C:\VulkanSDK\$env:VULKAN_SDK_VERSION"
+          if (-not (Test-Path (Join-Path $sdk 'Bin\glslc.exe'))) {
+            throw "the Vulkan SDK is not usable at $sdk"
+          }
+          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VK_SDK_PATH=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          (Join-Path $sdk 'Bin') | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Locate the Windows shader compiler
         shell: pwsh
         run: |
