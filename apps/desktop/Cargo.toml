@@ -14,7 +14,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 color-eyre = "0.6"
-dirs = "6"
 draft-audio.workspace = true
 draft-core.workspace = true
 draft-engine.workspace = true

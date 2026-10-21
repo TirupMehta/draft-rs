@@ -284,11 +284,7 @@ fn default_model_path() -> PathBuf {
     if let Ok(path) = std::env::var("DRAFT_MODEL_PATH") {
         return PathBuf::from(path);
     }
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Draft")
-        .join("models")
-        .join("whisper-large-v3-turbo-Q8_0.gguf")
+    draft_core::paths::default_model_path()
 }
 
 fn help() -> &'static str {
@@ -298,11 +294,12 @@ Usage:
   draft [--model PATH] [--backend auto|vulkan|metal|cuda|cpu] [--hotkey NAME]
         [--microphone NAME|default] [--no-paste] [--settings PATH]
 
-Settings live at %LOCALAPPDATA%\\Draft\\settings.json and change from the
+Settings live at %LOCALAPPDATA%\\Draft4\\settings.json and change from the
 Preferences card. CLI flags override them for this launch. Set
 DRAFT_SETTINGS_PATH to use a different settings file. The default model path is
-%LOCALAPPDATA%\\Draft\\models\\whisper-large-v3-turbo-Q8_0.gguf; set
-DRAFT_MODEL_PATH or pass --model to override it. Hotkeys: right-ctrl (default),
+%LOCALAPPDATA%\\Draft4\\models\\whisper-large-v3-turbo-Q8_0.gguf; run
+`draftctl model install` to download and verify it, or set DRAFT_MODEL_PATH or
+pass --model. Hotkeys: right-ctrl (default),
 right-alt, f8, f9, pause, scroll-lock. Hold the hotkey to dictate; release to
 paste at the cursor."
 }

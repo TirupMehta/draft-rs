@@ -43,15 +43,11 @@ impl Default for Settings {
 impl Settings {
     /// The one settings file, next to the model cache.
     ///
-    /// `data_local_dir` is `%LOCALAPPDATA%` on Windows,
-    /// `~/Library/Application Support` on macOS, and `~/.local/share` on
-    /// Linux. Those are the right per-user, non-roaming locations for a
-    /// local-first app.
+    /// This lives in [`crate::paths::data_dir`], which is deliberately not the
+    /// Draft v3.5 folder (`%LOCALAPPDATA%\Draft`). The shipping app's
+    /// `config.json`, `history.json`, and logs are never overlapped.
     pub fn default_path() -> PathBuf {
-        dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("Draft")
-            .join("settings.json")
+        crate::paths::data_dir().join("settings.json")
     }
 
     /// Read settings from `path`. A missing file is not an error; a malformed

@@ -34,6 +34,7 @@ fn run() -> Result<()> {
         Some("bench") => bench(&args[1..])?,
         Some("mic") => mic(&args[1..])?,
         Some("listen") => listen(&args[1..])?,
+        Some("model") => model(&args[1..])?,
         Some("--version" | "-V") => println!("draft {VERSION}"),
         Some("--help" | "-h") => print_help(),
         Some(other) => {
@@ -57,6 +58,11 @@ Usage:
   draft bench --fixtures <dir>  Measure warm latency and write JSON
   draft mic --seconds <n>       Record the default microphone
   draft listen --model <path>   Hold Right Ctrl to dictate into the terminal
+  draft model status            Show the installed model and its path
+  draft model list              Show the model catalog
+  draft model install           Download, verify, and install the default model
+  draft model verify [path]     Check a file against the pinned artifact
+  draft model remove            Delete the installed model
   draft --version               Print the version
   draft --help                  Show this help
 
@@ -71,7 +77,7 @@ Bench options:
   --fixtures <dir>              Directory of 16 kHz mono WAV files
   --runs <n>                    Measured runs per clip (default: 5)
   --warmup <n>                  Untimed runs before measuring
-  --trace                       Print every measured runng (default: 2)
+  --trace                       Print every measured run
   --json <path>                 Write the report as JSON
   --backend auto|vulkan|cpu     Compute backend (default: auto)
 
@@ -80,6 +86,9 @@ Mic options:
   --out <path>                  Write a 16 kHz mono WAV
   --model <path>                Transcribe the recording after capture
   --backend auto|vulkan|cpu     Compute backend (default: auto)
+
+Model options:
+  --dir <path>                  Models folder (default: the Draft4 data folder)
 
 Listen options:
   --paste                       Insert the result at the current focus
@@ -202,6 +211,186 @@ fn mic(args: &[String]) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn model(args: &[String]) -> Result<()> {
+    let mut dir = draft_core::paths::models_dir();
+    let mut rest: Vec<&String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--dir" => {
+                dir = args
+                    .get(index + 1)
+                    .map(PathBuf::from)
+                    .context("--dir needs a path")?;
+                index += 2;
+            }
+            _ => {
+                rest.push(&args[index]);
+                index += 1;
+            }
+        }
+    }
+
+    match rest.first().map(|argument| argument.as_str()) {
+        None | Some("status") => model_status(&dir),
+        Some("list") => model_list(&dir),
+        Some("install") => model_install(&dir),
+        Some("verify") => model_verify(rest.get(1).map(PathBuf::from), &dir),
+        Some("remove") => model_remove(&dir),
+        Some("--help" | "-h") => {
+            print_help();
+            Ok(())
+        }
+        Some(other) => bail!("unknown model command: {other} (try `draft model --help`)"),
+    }
+}
+
+fn model_status(dir: &Path) -> Result<()> {
+    let spec = &draft_core::models::DEFAULT_MODEL;
+    let state = draft_core::models::state(spec, dir)?;
+
+    println!("Model   {} ({})", spec.name, spec.quantization);
+    println!("Id      {}", spec.id);
+    println!("Folder  {}", dir.display());
+    match state {
+        draft_core::models::ModelState::Missing => {
+            println!("State   missing - run `draft model install`");
+        }
+        draft_core::models::ModelState::Partial { bytes } => {
+            println!(
+                "State   partial, {} of {} - run `draft model install` to resume",
+                human_bytes(bytes),
+                human_bytes(spec.size)
+            );
+        }
+        draft_core::models::ModelState::Installed { bytes } => {
+            println!("State   installed ({})", human_bytes(bytes));
+            println!("File    {}", spec.path_in(dir).display());
+        }
+        draft_core::models::ModelState::Corrupt { bytes } => {
+            println!(
+                "State   wrong length ({bytes} bytes, expected {}) - run `draft model install`",
+                spec.size
+            );
+        }
+    }
+    Ok(())
+}
+
+fn model_list(dir: &Path) -> Result<()> {
+    for spec in draft_core::models::CATALOG {
+        let state = draft_core::models::state(spec, dir)?;
+        let status = match state {
+            draft_core::models::ModelState::Missing => "missing".to_owned(),
+            draft_core::models::ModelState::Partial { bytes } => {
+                format!("partial ({})", human_bytes(bytes))
+            }
+            draft_core::models::ModelState::Installed { bytes } => {
+                format!("installed ({})", human_bytes(bytes))
+            }
+            draft_core::models::ModelState::Corrupt { bytes } => {
+                format!("wrong length ({bytes} bytes)")
+            }
+        };
+        println!(
+            "{:<32} {:<6} {:>10}  {status}",
+            spec.id,
+            spec.quantization,
+            human_bytes(spec.size)
+        );
+    }
+    Ok(())
+}
+
+fn model_install(dir: &Path) -> Result<()> {
+    use std::io::Write as _;
+    use std::sync::atomic::AtomicBool;
+
+    let spec = &draft_core::models::DEFAULT_MODEL;
+    eprintln!(
+        "Installing {} ({}), {} to {}",
+        spec.name,
+        spec.quantization,
+        human_bytes(spec.size),
+        spec.path_in(dir).display()
+    );
+
+    let source = draft_core::models::HttpSource::new(spec);
+    let cancel = AtomicBool::new(false);
+    let started = Instant::now();
+    let mut last_report = started;
+    let mut reported = false;
+
+    let path = draft_core::models::install(spec, dir, &source, &cancel, |progress| {
+        let now = Instant::now();
+        if now.duration_since(last_report) >= Duration::from_millis(250)
+            || progress.downloaded == progress.total
+        {
+            let percent = if progress.total == 0 {
+                0.0
+            } else {
+                progress.downloaded as f64 / progress.total as f64 * 100.0
+            };
+            eprint!(
+                "\r  {percent:>5.1}%  {} / {}",
+                human_bytes(progress.downloaded),
+                human_bytes(progress.total)
+            );
+            let _ = std::io::stderr().flush();
+            last_report = now;
+            reported = true;
+        }
+    })?;
+
+    if reported {
+        eprintln!();
+    }
+    println!(
+        "Installed and verified {} in {:.1}s",
+        path.display(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+fn model_verify(path: Option<PathBuf>, dir: &Path) -> Result<()> {
+    let spec = &draft_core::models::DEFAULT_MODEL;
+    let path = path.unwrap_or_else(|| spec.path_in(dir));
+    println!("File     {}", path.display());
+    println!("Expected {} bytes", spec.size);
+    println!("         sha256 {}", spec.sha256);
+
+    let report = draft_core::models::verify(&path, spec)?;
+    println!("Actual   {} bytes", report.bytes);
+    println!("         sha256 {}", report.sha256);
+    if report.matches(spec) {
+        println!("OK - exact pinned artifact");
+        Ok(())
+    } else {
+        bail!("{} does not match the pinned artifact", path.display());
+    }
+}
+
+fn model_remove(dir: &Path) -> Result<()> {
+    let spec = &draft_core::models::DEFAULT_MODEL;
+    if draft_core::models::remove(spec, dir)? {
+        println!("Removed {}", spec.path_in(dir).display());
+    } else {
+        println!("Nothing to remove in {}", dir.display());
+    }
+    Ok(())
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const GB: f64 = 1_000_000_000.0;
+    const MB: f64 = 1_000_000.0;
+    if bytes as f64 >= GB {
+        format!("{:.2} GB", bytes as f64 / GB)
+    } else {
+        format!("{:.1} MB", bytes as f64 / MB)
+    }
 }
 
 struct Job {

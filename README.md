@@ -22,14 +22,21 @@ transcript.
 - Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
 - Click-through recording HUD with listening and transcribing states.
 - Preferences persist the shortcut, microphone, and model path to
-  `%LOCALAPPDATA%\Draft\settings.json`; choices survive restart.
+  `%LOCALAPPDATA%\Draft4\settings.json`; choices survive restart.
 - Microphone picker with a four-second level check and automatic fallback to the
   system default when a saved device disappears.
-- `draftctl` for transcription, microphone capture, and benchmark runs.
+- `draftctl model install` downloads the shipping model once, verifies its exact
+  SHA-256, and installs it atomically; interrupted downloads resume.
+- `draftctl` for model management, transcription, microphone capture, and
+  benchmark runs.
 
-Not yet: streaming partial text, history, model downloads, installer and signed
-updates, macOS/Linux shells, and mobile. Real-speech WER parity with v3.5 is the
-open release gate; see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+Not yet: streaming partial text, history, the multi-model catalog, installer and
+signed updates, macOS/Linux shells, and mobile. Real-speech WER parity with v3.5
+is the open release gate; see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+Draft v3.5 keeps its data in `%LOCALAPPDATA%\Draft`. This rewrite uses
+`%LOCALAPPDATA%\Draft4` and never reads, migrates, or overwrites the shipping
+app's settings, history, or logs.
 
 ## Why Draft
 
@@ -87,9 +94,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 cargo run -p draft-desktop
 ```
 
-The app looks for `%LOCALAPPDATA%\Draft\models\whisper-large-v3-turbo-Q8_0.gguf`.
-Pass `--model PATH` or set `DRAFT_MODEL_PATH` for a local GGUF. The development
-CLI is `cargo run -p draft -- --help` (binary `draftctl`). Run
+The app looks for
+`%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-Q8_0.gguf`. Run
+`cargo run -p draft -- model install` to download and verify it, or pass
+`--model PATH` / set `DRAFT_MODEL_PATH` for a local GGUF. `draftctl model status`
+and `model verify` report what is installed. The development CLI is
+`cargo run -p draft -- --help` (binary `draftctl`). Run
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
 and `cargo test --workspace` before committing.
 

@@ -4,14 +4,17 @@ The authoritative build order. Each milestone ends with something a user can
 run, not a folder of abstractions. Desktop first, then mobile over the same
 core.
 
-## Current state (2026-10-20)
+## Current state (2026-10-21)
 
 Windows x64 is the active target. The hold-to-talk loop, tray, click-through HUD,
 persisted shortcut/microphone/model settings, microphone level check and device
-fallback, and the release Vulkan benchmark are working. The open release gates
-are real-speech WER parity, a repeatable end-to-end paste run, installer and
-signed updates, and the macOS/Linux/mobile shells. Measured latency lives in
-[`PERFORMANCE.md`](PERFORMANCE.md).
+fallback, the pinned resumable model installer, and the release Vulkan benchmark
+are working. The open release gates are real-speech WER parity, a repeatable
+end-to-end paste run, installer and signed updates, and the macOS/Linux/mobile
+shells. Measured latency lives in [`PERFORMANCE.md`](PERFORMANCE.md).
+
+Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
+`%LOCALAPPDATA%\Draft` folder is never read or overwritten.
 
 ## M0 — Scaffold and proof
 
@@ -57,7 +60,9 @@ signed updates, and the macOS/Linux/mobile shells. Measured latency lives in
 ## M2 — Models and streaming
 
 - [ ] Model catalog with Parakeet Unified English and Whisper large-v3-turbo.
-- [ ] Download with progress, SHA-256 verification, atomic install.
+- [x] Pinned Whisper Q8_0 artifact (length and SHA-256), resumable download with
+      progress, verification, atomic install, status, verify, and remove.
+- [ ] Parakeet Unified English entry in the same catalog.
 - [ ] Streaming session with partial text; final whole-clip fallback.
 - [x] HUD: click-through, always-on-top listening and transcribing states.
 - [ ] HUD waveform and partial text.

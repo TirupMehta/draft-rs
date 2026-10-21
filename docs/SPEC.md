@@ -10,12 +10,12 @@ Hold a key, speak naturally, and watch accurate text appear at the cursor — on
 every device, fully local, faster than the cloud, with none of the clipboard
 gymnastics.
 
-**Current build (Windows x64, 2026-10-20).** Hold-to-talk dictation, six
+**Current build (Windows x64, 2026-10-21).** Hold-to-talk dictation, six
 shortcut presets, the tray and click-through HUD, persisted shortcut/microphone/
-model settings, the microphone level check and fallback, and the Vulkan benchmark
-are working. Streaming, history, model downloads, installer/updates,
-macOS/Linux, and mobile are not built yet. Real-speech WER parity is the open
-release gate. [`ROADMAP.md`](ROADMAP.md) is the live checklist.
+model settings, the microphone level check and fallback, the pinned resumable
+model installer, and the Vulkan benchmark are working. Streaming, history,
+installer/updates, macOS/Linux, and mobile are not built yet. Real-speech WER
+parity is the open release gate. [`ROADMAP.md`](ROADMAP.md) is the live checklist.
 
 ## 2. Why this exists
 
@@ -154,6 +154,8 @@ Platform input hook (Win32 hook / CGEventTap / evdev)
 crates/draft-core/src/lib.rs        platform-neutral facade
 crates/draft-core/src/text.rs       pure text helpers and meaningful-text checks
 crates/draft-core/src/settings.rs   schema, atomic persistence, forward-compatible fields
+crates/draft-core/src/paths.rs      the Draft4 per-user data and model folders
+crates/draft-core/src/models.rs     pinned catalog, verified/resumable install, delete
 crates/draft-engine/src/lib.rs      transcribe.cpp model and warm session owner
 crates/draft-audio/src/lib.rs       cpal capture, device selection, level, 16 kHz resample
 crates/draft-hotkey/src/lib.rs      cross-platform hotkey vocabulary and events
@@ -172,7 +174,6 @@ apps/desktop/src/theme.rs           design tokens and typography
 Planned, not present yet:
 
 ```text
-crates/draft-core/src/models.rs     catalog, download, checksum, install/delete
 crates/draft-core/src/stream.rs     stream state, finish/fallback policy
 crates/draft-core/src/pipeline.rs   corrections, hotwords, transformations
 crates/draft-core/src/history.rs    bounded retained history
@@ -223,11 +224,17 @@ bounds only; if v3.5 is faster, v3.5 wins.
 ## 10. Data and privacy
 
 - Runtime data lives in the platform application-data directory:
-  `%LOCALAPPDATA%\Draft\settings.json` on Windows,
-  `~/Library/Application Support/Draft/settings.json` on macOS, and
-  `~/.local/share/Draft/settings.json` on Linux. Model files live in
-  `%LOCALAPPDATA%\Draft\models` on Windows and the equivalent platform data
+  `%LOCALAPPDATA%\Draft4\settings.json` on Windows,
+  `~/Library/Application Support/Draft4/settings.json` on macOS, and
+  `~/.local/share/Draft4/settings.json` on Linux. Model files live in
+  `%LOCALAPPDATA%\Draft4\models` on Windows and the equivalent platform data
   directory; they are re-downloadable.
+- Draft v3.5 owns `%LOCALAPPDATA%\Draft`. The rewrite never reads, migrates, or
+  overwrites that folder, so the shipping app's `config.json`, `history.json`,
+  and logs keep working unchanged while both are installed.
+- Model installs accept only the pinned byte length and SHA-256. A download
+  writes `<name>.part`, resumes from that prefix, verifies the complete file,
+  syncs it, and only then renames it into place; a mismatch is deleted.
 - Audio is never persisted by default.
 - History stores text and bounded metadata only: no audio, no window titles, no
   full URLs.
@@ -237,9 +244,10 @@ bounds only; if v3.5 is faster, v3.5 wins.
 
 ## 11. Milestones
 
-Status (2026-10-20): M0 is complete on Windows, and the M1 latency/engine slice
-is complete while WER and the repeatable paste run remain. M2 has the basic HUD
-only, and M3 has settings and microphone selection only. M4-M7 are not started.
+Status (2026-10-21): M0 is complete on Windows, and the M1 latency/engine slice
+is complete while WER and the repeatable paste run remain. M2 has the HUD and
+the pinned single-model installer; the Parakeet preview catalog and streaming
+remain. M3 has settings and microphone selection only. M4-M7 are not started.
 
 ### M0 — Scaffold and proof
 
@@ -258,7 +266,8 @@ only, and M3 has settings and microphone selection only. M4-M7 are not started.
 
 ### M2 — Models and streaming
 
-- Model catalog, download with progress, checksum, selection, deletion.
+- Model catalog with a pinned Whisper large-v3-turbo entry; resumable download
+  with progress, SHA-256 verification, atomic install, status, and deletion.
 - Parakeet stream preview plus Whisper final pass.
 - HUD shows waveform, partial text, and processing state.
 - **Done when:** text appears while speaking and is replaced by the final

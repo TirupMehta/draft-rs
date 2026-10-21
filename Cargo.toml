@@ -23,8 +23,10 @@ draft-engine = { path = "crates/draft-engine" }
 draft-audio = { path = "crates/draft-audio" }
 draft-hotkey = { path = "crates/draft-hotkey" }
 draft-paste = { path = "crates/draft-paste" }
+sha2 = "0.10"
 thiserror = "2"
 tracing = "0.1"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [profile.release]
 lto = "thin"
