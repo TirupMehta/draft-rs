@@ -1,16 +1,17 @@
 //! The Draft design system.
 //!
-//! Two palettes, one structure. Every color, radius, and size the interface
+//! One instrument, two finishes. Every color, size, and line the interface
 //! uses comes from here, so the product reads as a single object instead of a
 //! collection of decorated panels.
 //!
 //! The rules this file encodes:
 //!
-//! * One accent. Amber marks live state (recording, selection, focus).
+//! * One accent. Amber marks live state: recording, selection, focus.
 //! * Hierarchy comes from type and space. Containers are the exception.
-//! * Dark is the default because Draft is a floating utility that sits over
-//!   other applications. Light is designed, not inverted: warmer paper
-//!   background, deeper accent for contrast, and the same structure.
+//! * Dark is the default because Draft floats over other applications. The
+//!   graphite is warm, not blue-black, so the amber sits in the same room.
+//! * Light is designed, not inverted: warm paper, deeper amber, the same
+//!   structure and the same restraint.
 
 use gpui::{Rgba, px, rgb, rgba};
 
@@ -63,16 +64,22 @@ impl Appearance {
 /// The colors one theme uses.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
-    /// The window background. Nothing sits on it except content.
+    /// The window background. The floor of the instrument.
     pub canvas: Rgba,
+    /// A quiet lifted plane: the settings rail, result blocks, metric strips.
+    pub surface: Rgba,
     /// Inputs, switch tracks, and segmented tracks.
     pub raised: Rgba,
     /// The hover state of a raised surface.
     pub raised_hover: Rgba,
-    /// A quiet visible line, used for meter baselines and empty tracks.
+    /// A selected or pressed plane above `raised`.
+    pub elevated: Rgba,
+    /// Meter baselines and empty tracks.
     pub track: Rgba,
     /// Hairlines between rows.
     pub hairline: Rgba,
+    /// A line that has to carry weight: the HUD frame, theme dots.
+    pub hairline_strong: Rgba,
     /// Primary text.
     pub text: Rgba,
     /// Supporting text.
@@ -87,73 +94,70 @@ pub struct Palette {
     pub accent_text: Rgba,
     pub danger: Rgba,
     pub danger_soft: Rgba,
-    /// A keyboard key.
+    /// A keyboard key or inline code block.
     pub keycap: Rgba,
-    pub keycap_border: Rgba,
+    /// A translucent edge under physical keys. Not a box shadow.
+    pub shade: Rgba,
 }
 
 impl Palette {
     pub fn dark() -> Self {
         Self {
-            canvas: rgb(0x0d0d0f),
-            raised: rgb(0x1b1b20),
-            raised_hover: rgb(0x24242b),
-            track: rgb(0x2a2a32),
-            hairline: rgba(0xffffff14),
-            text: rgb(0xf3f3f5),
-            secondary: rgb(0xa3a3ac),
-            tertiary: rgb(0x74747e),
-            accent: rgb(0xe8a33c),
-            accent_soft: rgba(0xe8a33c1f),
-            accent_text: rgb(0xf0b95f),
-            danger: rgb(0xe2685c),
-            danger_soft: rgba(0xe2685c1f),
-            keycap: rgb(0x1e1e24),
-            keycap_border: rgba(0xffffff1f),
+            canvas: rgb(0x0f0f12),
+            surface: rgb(0x151519),
+            raised: rgb(0x1c1c22),
+            raised_hover: rgb(0x25252d),
+            elevated: rgb(0x2b2b34),
+            track: rgb(0x34343e),
+            hairline: rgba(0xfff4e214),
+            hairline_strong: rgba(0xfff4e228),
+            text: rgb(0xf7f4ee),
+            secondary: rgb(0xbab6ae),
+            tertiary: rgb(0x918d85),
+            accent: rgb(0xf2b45f),
+            accent_soft: rgba(0xf2b45f24),
+            accent_text: rgb(0xf7c77f),
+            danger: rgb(0xec7062),
+            danger_soft: rgba(0xec706224),
+            keycap: rgb(0x202027),
+            shade: rgba(0x00000066),
         }
     }
 
     pub fn light() -> Self {
         Self {
-            canvas: rgb(0xfaf9f7),
-            raised: rgb(0xffffff),
-            raised_hover: rgb(0xf0efeb),
-            track: rgb(0xe4e2dd),
-            hairline: rgba(0x00000016),
-            text: rgb(0x151517),
-            secondary: rgb(0x5c5c65),
-            tertiary: rgb(0x8b8b93),
-            accent: rgb(0xa86510),
-            accent_soft: rgba(0xa8651014),
-            accent_text: rgb(0x8b5409),
-            danger: rgb(0xb03a2e),
-            danger_soft: rgba(0xb03a2e12),
-            keycap: rgb(0xffffff),
-            keycap_border: rgba(0x00000024),
+            canvas: rgb(0xf4f1ea),
+            surface: rgb(0xfcfaf5),
+            raised: rgb(0xece8df),
+            raised_hover: rgb(0xe4dfd4),
+            elevated: rgb(0xffffff),
+            track: rgb(0xdcd6cb),
+            hairline: rgba(0x28221817),
+            hairline_strong: rgba(0x2822182e),
+            text: rgb(0x1b1915),
+            secondary: rgb(0x575249),
+            tertiary: rgb(0x746f66),
+            accent: rgb(0xa3610c),
+            accent_soft: rgba(0xa3610c1a),
+            accent_text: rgb(0x8a5109),
+            danger: rgb(0xb23a2e),
+            danger_soft: rgba(0xb23a2e1a),
+            keycap: rgb(0xfffdf8),
+            shade: rgba(0x0000001f),
         }
     }
 }
 
-/// Spacing. Everything is a multiple of four.
+/// Spacing. The interface uses four, eight, twelve, sixteen, twenty-four,
+/// and thirty-two, and nothing in between.
 pub mod space {
+    pub const XS: f32 = 4.0;
     pub const SM: f32 = 8.0;
     pub const MD: f32 = 12.0;
     pub const LG: f32 = 16.0;
     pub const XL: f32 = 24.0;
+    pub const XXL: f32 = 32.0;
 }
-
-/// Corner radii. Three values only: 6 px for controls, 12 px for surfaces,
-/// and a capsule for the switch.
-pub mod radius {
-    pub const CONTROL: f32 = 6.0;
-    pub const PANEL: f32 = 12.0;
-    pub const CAPSULE: f32 = 9999.0;
-}
-
-const _: () = {
-    // The radii are documented here and applied with GPUI's radius scale.
-    let _ = (radius::CONTROL, radius::PANEL, radius::CAPSULE);
-};
 
 /// A fully transparent color, used where a control is selected by fill only.
 pub fn transparent() -> Rgba {
@@ -176,30 +180,51 @@ pub fn mix(a: Rgba, b: Rgba, amount: f32) -> Rgba {
     }
 }
 
-/// Type sizes. The interface uses five.
+/// Type sizes. The interface uses six, and hierarchy comes from weight,
+/// color, and space rather than another size.
 pub mod type_size {
     pub const META: f32 = 12.0;
     pub const SMALL: f32 = 13.0;
     pub const BODY: f32 = 14.0;
-    pub const TITLE: f32 = 16.0;
-    pub const HEADLINE: f32 = 21.0;
+    pub const TITLE: f32 = 17.0;
+    pub const HEADLINE: f32 = 26.0;
+    /// The one hero line on the everyday surface.
+    pub const DISPLAY: f32 = 34.0;
+    /// The live elapsed time. It is the largest number in the product.
+    pub const TIMER: f32 = 48.0;
+}
+
+/// Line heights are set explicitly everywhere, so no text node inherits a
+/// height that depends on the font's opinion.
+pub mod line {
+    pub const META: f32 = 15.0;
+    pub const SMALL: f32 = 17.0;
+    pub const BODY: f32 = 21.0;
+    pub const TITLE: f32 = 24.0;
+    pub const HEADLINE: f32 = 32.0;
+    pub const DISPLAY: f32 = 40.0;
+    pub const TIMER: f32 = 54.0;
 }
 
 pub fn display_font() -> &'static str {
-    "Segoe UI Variable Display"
+    "Inter"
 }
 
 pub fn text_font() -> &'static str {
-    "Segoe UI Variable Text"
+    "Inter"
+}
+
+pub fn mono_font() -> &'static str {
+    "JetBrains Mono"
 }
 
 /// The HUD floats over other applications, so it gets one soft shadow to lift
-/// it off whatever is behind it.
+/// it off whatever is behind it. It is the only shadow in the product.
 pub fn hud_shadow() -> Vec<gpui::BoxShadow> {
     vec![gpui::BoxShadow {
-        color: gpui::hsla(0.0, 0.0, 0.0, 0.34),
-        offset: gpui::point(px(0.0), px(8.0)),
-        blur_radius: px(18.0),
-        spread_radius: px(-6.0),
+        color: gpui::hsla(0.0, 0.0, 0.0, 0.42),
+        offset: gpui::point(px(0.0), px(10.0)),
+        blur_radius: px(26.0),
+        spread_radius: px(-8.0),
     }]
 }

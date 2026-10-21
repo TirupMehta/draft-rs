@@ -14,6 +14,7 @@ mod tray;
 mod window_control;
 mod worker;
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -33,6 +34,17 @@ fn main() -> color_eyre::Result<()> {
     let options = parse_options();
 
     Application::new().run(move |cx: &mut App| {
+        let fonts: Vec<Cow<'static, [u8]>> = vec![
+            Cow::Borrowed(&include_bytes!("../../../assets/fonts/Inter-Regular.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../../../assets/fonts/Inter-Medium.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf")[..]),
+            Cow::Borrowed(&include_bytes!("../../../assets/fonts/JetBrainsMono-Medium.ttf")[..]),
+        ];
+        if let Err(error) = cx.text_system().add_fonts(fonts) {
+            tracing::warn!(%error, "could not load the bundled fonts");
+        }
+
         let hud = cx.new(|_| hud::DraftHud::new());
         let app = cx.new(|cx| {
             app::DraftApp::new(
@@ -48,7 +60,8 @@ fn main() -> color_eyre::Result<()> {
             )
         });
 
-        let bounds = Bounds::centered(None, size(px(560.0), px(240.0)), cx);
+        let (width, height) = app::initial_view_size();
+        let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let window = cx
             .open_window(
                 WindowOptions {
@@ -62,6 +75,9 @@ fn main() -> color_eyre::Result<()> {
                         traffic_light_position: None,
                     }),
                     app_id: Some("in.tirup.draft".into()),
+                    // One fixed surface. A non-resizable window also removes
+                    // the maximize box, so fullscreen is not reachable.
+                    is_resizable: false,
                     show: !options.background,
                     ..Default::default()
                 },
@@ -118,6 +134,10 @@ fn main() -> color_eyre::Result<()> {
                     window_bounds: Some(WindowBounds::Windowed(hud_bounds)),
                     titlebar: None,
                     focus: false,
+                    // A GPUI popup applies its `window_bounds` on the first
+                    // show. It is hidden again in `attach_windows`, before the
+                    // first poll, so the correct 600x84 capsule is what gets
+                    // placed on screen.
                     show: true,
                     kind: WindowKind::PopUp,
                     is_movable: false,

@@ -86,7 +86,7 @@ impl Render for DraftHud {
 
         let palette = snapshot.palette;
         let listening = snapshot.tone == HudTone::Listening;
-        let accent = if listening {
+        let signal = if listening {
             palette.accent
         } else {
             palette.tertiary
@@ -96,16 +96,16 @@ impl Render for DraftHud {
         // there is something to hear.
         let phase = self.started.elapsed().as_secs_f32() * 6.0;
         let amplitude = (snapshot.level.sqrt() * 1.15).clamp(0.0, 1.0);
-        let bars = (0..12)
+        let bars = (0..14)
             .map(|index| {
                 let wave = ((phase + index as f32 * 0.5).sin() * 0.5 + 0.5).powi(2);
-                let height = 4.0 + wave * (4.0 + amplitude * 18.0);
+                let height = 4.0 + wave * (4.0 + amplitude * 16.0);
                 div()
                     .w(px(2.0))
                     .h(px(height))
                     .rounded_full()
                     .bg(if amplitude > 0.02 {
-                        accent
+                        theme::mix(palette.accent, palette.accent_text, amplitude * 0.5)
                     } else {
                         palette.track
                     })
@@ -124,24 +124,26 @@ impl Render for DraftHud {
             .flex()
             .items_center()
             .justify_center()
-            .p(px(8.0))
+            .p(px(6.0))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(12.0))
                     .w(px(560.0))
-                    .px(px(14.0))
-                    .py(px(10.0))
-                    .rounded_xl()
-                    .bg(palette.canvas)
+                    .h(px(64.0))
+                    .pl(px(14.0))
+                    .pr(px(10.0))
+                    .rounded_lg()
+                    .bg(palette.surface)
                     .border_1()
-                    .border_color(palette.hairline)
+                    .border_color(palette.hairline_strong)
                     .shadow(theme::hud_shadow())
+                    .child(div().w(px(3.0)).h(px(28.0)).rounded_full().bg(signal))
                     .child(
                         div()
-                            .w(px(40.0))
-                            .h(px(24.0))
+                            .w(px(52.0))
+                            .h(px(28.0))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -157,19 +159,24 @@ impl Render for DraftHud {
                             .gap(px(2.0))
                             .child(
                                 div()
-                                    .font_family(theme::display_font())
-                                    .text_size(px(13.0))
+                                    .text_size(px(theme::type_size::META))
+                                    .line_height(px(theme::line::META))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(if listening {
-                                        palette.text
+                                        palette.accent_text
                                     } else {
-                                        palette.secondary
+                                        palette.tertiary
                                     })
-                                    .child(snapshot.title.clone()),
+                                    .child(if listening {
+                                        "LISTENING"
+                                    } else {
+                                        "TRANSCRIBING"
+                                    }),
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.0))
+                                    .text_size(px(theme::type_size::SMALL))
+                                    .line_height(px(theme::line::SMALL))
                                     .text_color(body.1)
                                     .h(px(16.0))
                                     .overflow_hidden()
@@ -178,11 +185,14 @@ impl Render for DraftHud {
                     )
                     .child(
                         div()
-                            .px_2()
+                            .px(px(7.0))
                             .py(px(3.0))
                             .rounded_md()
                             .bg(palette.raised)
-                            .text_size(px(11.0))
+                            .border_1()
+                            .border_color(palette.hairline)
+                            .text_size(px(theme::type_size::META))
+                            .line_height(px(theme::line::META))
                             .text_color(palette.tertiary)
                             .child(if listening { "ESC" } else { "…" }),
                     ),

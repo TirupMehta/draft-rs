@@ -2,6 +2,8 @@
 //! thread never waits for a model load or a decode.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -35,6 +37,8 @@ pub enum Event {
         elapsed: Duration,
         timings: EngineTimings,
         audio_s: f64,
+        /// True only when the text was actually inserted at the cursor.
+        pasted: bool,
         paste_error: Option<String>,
     },
     Empty {
@@ -45,19 +49,42 @@ pub enum Event {
     },
 }
 
-pub fn spawn(model: PathBuf, backend: ComputeBackend) -> (Sender<Job>, Receiver<Event>) {
+pub fn spawn(
+    model: PathBuf,
+    backend: ComputeBackend,
+) -> (Sender<Job>, Receiver<Event>, Arc<AtomicUsize>) {
     let (job_sender, job_receiver) = channel();
     let (event_sender, event_receiver) = channel();
+    let pending_finals = Arc::new(AtomicUsize::new(0));
+    let finals = pending_finals.clone();
 
     std::thread::Builder::new()
         .name("draft-engine".to_owned())
-        .spawn(move || run(model, backend, job_receiver, event_sender))
+        .spawn(move || run(model, backend, job_receiver, event_sender, finals))
         .expect("spawn the Draft engine thread");
 
-    (job_sender, event_receiver)
+    (job_sender, event_receiver, pending_finals)
 }
 
-fn run(model: PathBuf, backend: ComputeBackend, jobs: Receiver<Job>, events: Sender<Event>) {
+/// Retire one final job without ever wrapping the counter below zero. A
+/// `compare_exchange` loop keeps this valid on the workspace MSRV.
+fn finish_final(pending: &AtomicUsize) {
+    let mut count = pending.load(Ordering::Acquire);
+    while count > 0 {
+        match pending.compare_exchange_weak(count, count - 1, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return,
+            Err(actual) => count = actual,
+        }
+    }
+}
+
+fn run(
+    model: PathBuf,
+    backend: ComputeBackend,
+    jobs: Receiver<Job>,
+    events: Sender<Event>,
+    pending_finals: Arc<AtomicUsize>,
+) {
     if !model.exists() {
         let _ = events.send(Event::Failed(format!(
             "Model not found at {}. Download it with `draftctl model install`, or pass --model.",
@@ -113,6 +140,11 @@ fn run(model: PathBuf, backend: ComputeBackend, jobs: Receiver<Job>, events: Sen
 
     while let Ok(job) = jobs.recv() {
         if job.preview {
+            // A final result always goes first. If one is already waiting,
+            // this preview has been superseded and must not delay it.
+            if pending_finals.load(Ordering::Acquire) > 0 {
+                continue;
+            }
             let started = Instant::now();
             let text = match engine.transcribe(
                 &job.samples,
@@ -148,7 +180,9 @@ fn run(model: PathBuf, backend: ComputeBackend, jobs: Receiver<Job>, events: Sen
         }
 
         let started = Instant::now();
-        match engine.transcribe(&job.samples, &TranscriptionOptions::default()) {
+        let result = engine.transcribe(&job.samples, &TranscriptionOptions::default());
+        finish_final(&pending_finals);
+        match result {
             Ok(result) => {
                 let cleaned = draft_core::text::clean_text(&result.text, false);
                 if let Some(detected) = result.language.clone() {
@@ -167,6 +201,7 @@ fn run(model: PathBuf, backend: ComputeBackend, jobs: Receiver<Job>, events: Sen
                 } else {
                     None
                 };
+                let pasted = job.paste && paste_error.is_none();
                 let audio_s = job.samples.len() as f64 / 16_000.0;
                 if events
                     .send(Event::Transcribed {
@@ -174,6 +209,7 @@ fn run(model: PathBuf, backend: ComputeBackend, jobs: Receiver<Job>, events: Sen
                         elapsed,
                         timings: result.timings,
                         audio_s,
+                        pasted,
                         paste_error,
                     })
                     .is_err()

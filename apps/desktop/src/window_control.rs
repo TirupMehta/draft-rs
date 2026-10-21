@@ -166,26 +166,6 @@ pub fn system_animations_enabled() -> bool {
     true
 }
 
-/// Maximize or restore a window that draws its own title bar.
-#[cfg(target_os = "windows")]
-pub fn toggle_maximize(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsZoomed, SW_MAXIMIZE, SW_RESTORE, ShowWindowAsync,
-    };
-
-    if hwnd == 0 {
-        return;
-    }
-    let hwnd = hwnd as *mut _;
-    let zoomed = unsafe { IsZoomed(hwnd) } != 0;
-    unsafe {
-        ShowWindowAsync(hwnd, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn toggle_maximize(_hwnd: isize) {}
-
 #[cfg(not(target_os = "windows"))]
 pub fn hwnd(_window: &Window) -> Option<isize> {
     None

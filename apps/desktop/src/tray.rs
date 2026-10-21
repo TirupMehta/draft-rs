@@ -33,15 +33,21 @@ pub fn build(hotkey: &str) -> Result<TrayIcon> {
     Ok(tray)
 }
 
-/// A 32 px amber disc with three dark waveform bars. Generated in code so the
-/// shell has no asset pipeline yet.
+/// The Draft mark on a dark tile: three rising bars and the half-disc D.
+/// Generated in code so the shell has no asset pipeline.
 fn icon_rgba() -> Vec<u8> {
     const SIZE: i32 = 32;
     let mut pixels = vec![0u8; (SIZE * SIZE * 4) as usize];
 
-    // A dark rounded tile keeps the tray icon consistent with the app's brand
-    // mark. The amber bars are the only bright pixels, so the icon reads
-    // clearly on both light and dark taskbars.
+    let put = |pixels: &mut [u8], x: i32, y: i32, color: [u8; 4]| {
+        if !(0..SIZE).contains(&x) || !(0..SIZE).contains(&y) {
+            return;
+        }
+        let index = ((y * SIZE + x) * 4) as usize;
+        pixels[index..index + 4].copy_from_slice(&color);
+    };
+
+    // A dark rounded tile keeps the amber mark legible on either taskbar.
     for y in 0..SIZE {
         for x in 0..SIZE {
             let radius = 7.0;
@@ -49,19 +55,29 @@ fn icon_rgba() -> Vec<u8> {
             let inside_y = (y as f32).clamp(radius, (SIZE as f32) - 1.0 - radius);
             let dx = x as f32 + 0.5 - (inside_x + 0.5);
             let dy = y as f32 + 0.5 - (inside_y + 0.5);
-            if (dx * dx + dy * dy).sqrt() > radius {
-                continue;
+            if (dx * dx + dy * dy).sqrt() <= radius {
+                put(&mut pixels, x, y, [0x10, 0x10, 0x14, 255]);
             }
-            let index = ((y * SIZE + x) * 4) as usize;
-            pixels[index..index + 4].copy_from_slice(&[0x10, 0x10, 0x14, 255]);
         }
     }
 
-    for (center_x, half_height) in [(8_i32, 5_i32), (13, 8), (18, 11), (23, 8), (28, 5)] {
+    let mark = [0xf7, 0xf4, 0xee, 255];
+    for (left, half_height) in [(4_i32, 3_i32), (9, 5), (14, 10)] {
         for y in (16 - half_height)..(16 + half_height) {
-            for x in (center_x - 1)..(center_x + 1) {
-                let index = ((y * SIZE + x) * 4) as usize;
-                pixels[index..index + 4].copy_from_slice(&[0xf0, 0xb4, 0x5c, 255]);
+            for x in left..(left + 3) {
+                put(&mut pixels, x, y, mark);
+            }
+        }
+    }
+
+    // The right half of a circle: flat left edge, round right edge.
+    let (center_x, center_y, radius) = (19_i32, 16_i32, 10_i32);
+    for y in (center_y - radius)..=(center_y + radius) {
+        for x in center_x..=(center_x + radius) {
+            let dx = x - center_x;
+            let dy = y - center_y;
+            if dx * dx + dy * dy <= radius * radius {
+                put(&mut pixels, x, y, mark);
             }
         }
     }

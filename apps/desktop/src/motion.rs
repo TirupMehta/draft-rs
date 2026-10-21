@@ -48,14 +48,16 @@ impl Control {
 #[derive(Debug, Default)]
 pub struct Motion {
     controls: Vec<(&'static str, Control)>,
-    duration: Duration,
+    hover_duration: Duration,
+    press_duration: Duration,
 }
 
 impl Motion {
-    pub fn new(duration: Duration) -> Self {
+    pub fn new(hover_duration: Duration, press_duration: Duration) -> Self {
         Self {
             controls: Vec::new(),
-            duration,
+            hover_duration,
+            press_duration,
         }
     }
 
@@ -105,17 +107,11 @@ impl Motion {
         control.press.start = now;
     }
 
-    /// Start a control from zero and ease it to a target. Used when a section
-    /// changes and its content should fade in.
-    pub fn restart(&mut self, key: &'static str, target: f32) {
-        let now = Instant::now();
+    /// Put a control at a value immediately. The state the app opens in is
+    /// already selected, so the first frame must show that selection.
+    pub fn set(&mut self, key: &'static str, value: f32) {
         let control = self.entry(key);
-        control.hover = Tween {
-            value: 0.0,
-            target,
-            from: 0.0,
-            start: now,
-        };
+        control.hover = Tween::settled(value);
     }
 
     fn entry(&mut self, key: &'static str) -> &mut Control {
@@ -132,17 +128,22 @@ impl Motion {
     /// changed, so the window knows it has to repaint.
     pub fn advance(&mut self) -> bool {
         let now = Instant::now();
+        let hover_duration = self.hover_duration;
+        let press_duration = self.press_duration;
         let mut changed = false;
         for (_, control) in self.controls.iter_mut() {
-            for tween in [&mut control.hover, &mut control.press] {
+            for (tween, duration) in [
+                (&mut control.hover, hover_duration),
+                (&mut control.press, press_duration),
+            ] {
                 if (tween.value - tween.target).abs() < f32::EPSILON {
                     continue;
                 }
-                let progress = if self.duration.is_zero() {
+                let progress = if duration.is_zero() {
                     1.0
                 } else {
                     let elapsed = now.saturating_duration_since(tween.start).as_secs_f32();
-                    (elapsed / self.duration.as_secs_f32()).min(1.0)
+                    (elapsed / duration.as_secs_f32()).min(1.0)
                 };
                 tween.value = tween.from + (tween.target - tween.from) * ease_out(progress);
                 if progress >= 1.0 {
@@ -155,8 +156,8 @@ impl Motion {
     }
 }
 
-/// A quick, settled curve. It arrives without a long tail, so the interface
-/// never feels like it is waiting for an animation to finish.
+/// A quick, settled curve. The quintic tail is shorter than a cubic's, so the
+/// control arrives decisively and then stops instead of coasting.
 fn ease_out(progress: f32) -> f32 {
-    1.0 - (1.0 - progress).powi(3)
+    1.0 - (1.0 - progress).powi(5)
 }

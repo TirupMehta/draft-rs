@@ -55,7 +55,7 @@ crates/draft-hotkey   low-level Windows keyboard hook
 crates/draft-paste    clipboard insert (arboard), copy_text
 crates/draft-cli      the `draftctl` binary
 apps/desktop          the GPUI 0.2.2 shell (the product UI)
-assets                app icon (draft.ico, draft-256.png)
+assets                app icon (draft.ico, draft-256.png) and bundled fonts
 bench                 fixtures, baseline scripts, latency measurements
 docs                  SPEC, ROADMAP, PERFORMANCE, HANDOFF
 packaging/windows     Inno Setup installer script
@@ -133,49 +133,67 @@ theme, not an inversion. The active palette follows the `appearance` setting
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `canvas` | `#0d0d0f` | `#faf9f7` | the window background |
-| `surface` | `#101014` | `#ffffff` | raised surfaces |
-| `elevated` | `#18181e` | `#ffffff` | pressed states |
-| `raised` / `raised_hover` | `#1b1b20` / `#24242b` | `#ffffff` / `#f0efeb` | control tracks |
-| `track` | `#2a2a32` | `#e4e2dd` | quiet lines, meter baseline |
-| `hairline` | 8% white | 9% black | separators |
-| `text` | `#f3f3f5` | `#151517` | primary text |
-| `secondary` | `#a3a3ac` | `#5c5c65` | supporting text |
-| `tertiary` | `#74747e` | `#8b8b93` | metadata |
-| `accent` | `#e8a33c` | `#a86510` | the single accent |
-| `danger` | `#e2685c` | `#b03a2e` | errors only |
+| `canvas` | `#0f0f12` | `#f4f1ea` | the window background |
+| `surface` | `#151519` | `#fcfaf5` | the settings rail, result strips |
+| `raised` / `raised_hover` | `#1c1c22` / `#25252d` | `#ece8df` / `#e4dfd4` | control tracks |
+| `elevated` | `#2b2b34` | `#ffffff` | selected controls |
+| `track` | `#34343e` | `#dcd6cb` | quiet lines, meter baseline |
+| `hairline` | 8% warm white | 9% warm black | separators |
+| `text` | `#f7f4ee` | `#1b1915` | primary text |
+| `secondary` | `#bab6ae` | `#575249` | supporting text |
+| `tertiary` | `#918d85` | `#746f66` | metadata |
+| `accent` | `#f2b45f` | `#a3610c` | the single accent |
+| `danger` | `#ec7062` | `#b23a2e` | errors only |
+
+The mark is the signal-D: three rising bars and a half-disc, drawn from
+primitives in `app.rs` and `tray.rs`. It uses the palette's `text` color, so it
+stays monochrome in both themes; amber is reserved for live state and
+selection. `assets/draft.ico` and `assets/draft-256.png` are generated from the
+same geometry; the build script watches the ICO.
 
 There is exactly one accent. If a second hue appears, one of the two is wrong.
 
 ### Type
 
-Segoe UI Variable (Display for headings, Text for body) — it ships with
-Windows and needs no bundled asset. Sizes in `theme::type_size`:
+Inter (Regular, Medium, SemiBold) for every interface node, bundled in
+`assets/fonts`. JetBrains Mono (Regular, Medium) for the live timer and the
+command-line example, where tabular figures matter. Both are registered at
+startup so rendering is identical on every machine; sources and the OFL
+licenses live next to the files. Sizes in `theme::type_size`:
 
 | Token | Size | Use |
 |---|---|---|
 | `META` | 12 | metadata, timestamps, paths |
-| `SMALL` | 13 | body, descriptions, controls |
+| `SMALL` | 13 | descriptions, controls |
 | `BODY` | 14 | row labels, secondary copy |
-| `TITLE` | 16 | section titles |
-| `HEADLINE` | 21 | the one focal state line |
+| `TITLE` | 17 | the wordmark, compact headings |
+| `HEADLINE` | 26 | settings section headers |
+| `DISPLAY` | 34 | the one hero line on the everyday surface |
+| `TIMER` | 48 | the live elapsed time |
 
 Every text node sets an explicit `line_height`. Spacing comes from
-`theme::space` (8/12/16/24). Radii: 6 px controls, 12 px surfaces, full for
-pills and switches.
+`theme::space` (4/8/12/16/24/32). Radii: 6 px controls, 12 px surfaces, full
+for pills and switches.
 
 ### Layout rules
 
-* **One focal point per view.** The everyday view has one state line and
-  nothing competes with it. Configuration lives behind a view switch.
+* **One focal point per view.** The everyday view uses the full window width
+  with 32 px gutters: a 340 px instruction column and a 244 px input band.
+  The left side carries the status pill, one 34 px hero line, a 56 px keycap
+  whose label is the same 34 px, and (while recording) a 48 px timer. The band
+  shows the last 1.6 s of real input level, labelled `INPUT LEVEL` / `LIVE` or
+  `IDLE`, with a now tick at the right edge. The last transcript and a centered
+  privacy line sit below. Configuration lives behind a view switch.
 * **No dashboard.** Do not wrap content in bordered panels; use space, a
   hairline, and type weight to build hierarchy.
 * **The window is one surface.** The system caption is removed
   (`TitlebarOptions { appears_transparent: true }`) and Draft draws its own
-  44 px title bar: brand mark, wordmark, the Dictate/Settings control, then
-  minimize, maximize, close. Exactly one wordmark.
-* **Window sizes:** the everyday view is 560x240, settings is 680x500
-  (client area). `view_size()` in `app.rs` is the single source.
+  48 px title bar: brand mark, wordmark, the on-device pill, the
+  Dictate/Settings control, then minimize and close. Exactly one wordmark.
+* **One window size:** 680x500 client area for both views. The everyday view
+  uses a centered 560 px column inside it. `WINDOW_SIZE` in `app.rs` is the
+  single source. The window is not resizable, so fullscreen is not reachable
+  and switching views never reallocates the GPU surface.
 * **The title bar is draggable** from the brand or the empty space between the
   brand and the view control (`WindowControlArea::Drag`). Controls and buttons
   must not sit inside a drag region or they will not receive clicks.
@@ -198,14 +216,13 @@ All of them are hover- and press-animated through `motion.rs`.
 one number per control, advanced once per poll, and nothing runs while the app
 is idle.
 
-* Hover, press, view selection, and the section dissolve all use it.
-* The view switch is a cross-fade: 70 ms out, the window is resized while
-  nothing is visible, 140 ms in (`FADE_OUT`, `FADE_IN` in `app.rs`).
-* The window resize must go through `Window::resize` so the GPU surface
-  follows it. A raw `SetWindowPos` leaves a stale surface.
-* Duration is 150 ms, and it is **zero** when Windows reports that animations
-  are off (`SPI_GETCLIENTAREAANIMATION`, read in `window_control.rs`). Respect
-  the system setting; do not add a second, parallel motion system.
+* Hover, press, and view selection use it.
+* The view and section switches are instant. There is no cross-fade and no
+  window resize; the fixed surface keeps text crisp and input immediate.
+* Hover is 160 ms and press is 90 ms, so a click answers immediately and a
+  hover settles. Both are **zero** when Windows reports that animations are
+  off (`SPI_GETCLIENTAREAANIMATION`, read in `window_control.rs`). Respect the
+  system setting; do not add a second, parallel motion system.
 
 ### States
 
@@ -214,9 +231,9 @@ is idle.
 | Phase | What the everyday view shows |
 |---|---|
 | `Loading` | "Warming the model" and why |
-| `Ready` | "Hold [key] and speak" and "Release to paste at the cursor." |
-| `Listening` | "Listening", the real level meter, the release hint |
-| `Transcribing` | "Transcribing" with a quiet ellipsis, no fake percentage |
+| `Ready` | "Speak naturally.", a 56 px keycap with a 34 px label, a paste-aware hint, an idle input band |
+| `Listening` | "Speak now", a 48 px live timer, the live input band, the cancel hint |
+| `Transcribing` | "Finishing up" with a quiet ellipsis, no fake percentage |
 | `Error` | plain language plus a recovery action ("Open audio settings") |
 
 The recording meter is a real amplitude history (`VecDeque<f32>`, one sample
@@ -321,8 +338,8 @@ a capture. That is the supported way to test the recording state.
 
 * **Idle = zero repaints.** `poll()` notifies only on a real state change.
   Any new animation must not repaint while nothing is happening.
-* Repaint budget: event poll 60 Hz, visible window 30 fps, HUD 15 fps, and a
-  hidden window is not repainted at all.
+* Repaint budget: event poll 60 Hz, visible window 60 fps while audio is open,
+  HUD 60 fps, and a hidden window is not repainted at all.
 * Live preview is **off by default**. Each preview is a full GPU pass over the
   warm model; that is what made laptop fans spin. The final pass always uses
   the complete clip.

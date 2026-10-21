@@ -1,5 +1,6 @@
 #[cfg(windows)]
 fn main() {
+    println!("cargo:rerun-if-changed=../../assets/draft.ico");
     let mut resource = winres::WindowsResource::new();
     resource.set_icon("../../assets/draft.ico");
     resource.set("ProductName", "Draft");
