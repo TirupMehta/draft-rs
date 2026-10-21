@@ -8,20 +8,20 @@ Local Whisper large-v3-turbo · Vulkan · Native Rust · No account · No teleme
 [Download](#install) · [Project](https://github.com/TirupMehta/draft-rs) ·
 [GitHub](https://github.com/TirupMehta) · [X](https://x.com/TirupMehta)
 
-![Draft, ready to dictate](docs/screenshots/ready.png)
+![Draft — Speak. It appears.](Launch%20Assests/Draft-Launch-Kit/launch-graphics/launch-social-1200x630.png)
 
 Draft is a native Windows dictation app built around a simple loop: hold the
 key, speak naturally, and release. The audio is captured only while the key is
 held, transcribed locally, pasted at the cursor, and discarded. There is no
 cloud, no account, and no audio leaving the machine.
 
-| Listening | Settings |
-| --- | --- |
-| ![Listening](docs/screenshots/listening.png) | ![Settings](docs/screenshots/settings.png) |
+| Dictate | Listening | Recording HUD |
+| --- | --- | --- |
+| ![Dictate](Launch%20Assests/Draft-Launch-Kit/launch-graphics/feature-cards/01-dictate.png) | ![Listening](Launch%20Assests/Draft-Launch-Kit/launch-graphics/feature-cards/09-listening.png) | ![Recording HUD](Launch%20Assests/Draft-Launch-Kit/launch-graphics/feature-cards/10-listening-hud.png) |
 
-| Credits | Recording HUD |
+| Settings | Credits |
 | --- | --- |
-| ![Credits](docs/screenshots/credits.png) | ![Recording HUD](docs/screenshots/hud.png) |
+| ![Settings](docs/screenshots/settings.png) | ![Credits](docs/screenshots/credits.png) |
 
 ## Why Draft
 
@@ -210,10 +210,14 @@ dependency is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 The Credits section is also available in the app, under Settings → Credits,
 with links to GitHub and X and a button that opens the installed license files.
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. It covers the
+Windows setup, the design rules, the checks that must pass, and the license.
+
 ## License
 
-Draft is dual-licensed under either the [MIT License](LICENSE-MIT) or the
-[Apache License, Version 2.0](LICENSE-APACHE), at your option. The bundled
-typefaces are under the SIL Open Font License 1.1. The speech model is
-downloaded separately and is subject to its own terms. See [LICENSE](LICENSE),
-[NOTICE](NOTICE), and [CREDITS.md](CREDITS.md).
+Draft is released under the [MIT License](LICENSE). The bundled typefaces are
+under the SIL Open Font License 1.1. The speech model is downloaded separately
+and is subject to its own terms. See [NOTICE](NOTICE),
+[CREDITS.md](CREDITS.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

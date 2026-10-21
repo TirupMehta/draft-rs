@@ -433,4 +433,4 @@ The speech model is **Whisper large-v3-turbo** by OpenAI, distributed as a GGUF 
 
 ## Project license
 
-Draft itself is dual-licensed under the MIT License or the Apache License, Version 2.0. See `LICENSE`, `LICENSE-MIT`, and `LICENSE-APACHE`.
+Draft itself is released under the MIT License. See `LICENSE`.

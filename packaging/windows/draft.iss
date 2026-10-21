@@ -50,8 +50,6 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}\licenses"; DestName: "LICENSE.txt"; Flags: ignoreversion
-Source: "{#RepoRoot}\LICENSE-MIT"; DestDir: "{app}\licenses"; DestName: "LICENSE-MIT.txt"; Flags: ignoreversion
-Source: "{#RepoRoot}\LICENSE-APACHE"; DestDir: "{app}\licenses"; DestName: "LICENSE-APACHE.txt"; Flags: ignoreversion
 Source: "{#RepoRoot}\NOTICE"; DestDir: "{app}\licenses"; DestName: "NOTICE.txt"; Flags: ignoreversion
 Source: "{#RepoRoot}\CREDITS.md"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "{#RepoRoot}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}\licenses"; Flags: ignoreversion
@@ -60,6 +58,10 @@ Source: "{#RepoRoot}\assets\fonts\JetBrainsMono-OFL.txt"; DestDir: "{app}\licens
 #ifdef IncludeModel
 Source: "{#ModelPath}"; DestDir: "{localappdata}\Draft4\models"; Flags: onlyifdoesntexist
 #endif
+
+[InstallDelete]
+Type: files; Name: "{app}\licenses\LICENSE-MIT.txt"
+Type: files; Name: "{app}\licenses\LICENSE-APACHE.txt"
 
 [Icons]
 Name: "{autoprograms}\Draft"; Filename: "{app}\draft.exe"; WorkingDir: "{app}"

@@ -65,7 +65,6 @@ itself makes no network request for them.
 
 ## License
 
-Draft is available under either the [MIT License](LICENSE-MIT) or the
-[Apache License, Version 2.0](LICENSE-APACHE), at your option. The bundled
-typefaces are under the SIL Open Font License 1.1. The speech model is
-downloaded separately and is subject to its own terms.
+Draft is released under the [MIT License](LICENSE). The bundled typefaces are
+under the SIL Open Font License 1.1. The speech model is downloaded separately
+and is subject to its own terms.

@@ -18,7 +18,7 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 
 ## M0 — Scaffold and proof
 
-- [x] Initialize repo, MIT OR Apache-2.0 license, `.gitignore`, CI.
+- [x] Initialize repo, MIT license, `.gitignore`, CI.
 - [x] Write the product spec and architecture.
 - [x] Split the platform-neutral core from the CLI.
 - [x] Install Rust, VS Build Tools, and the Windows SDK.
