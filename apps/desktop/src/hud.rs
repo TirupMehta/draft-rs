@@ -96,7 +96,7 @@ impl Render for DraftHud {
             .partial
             .as_deref()
             .filter(|text| !text.trim().is_empty())
-            .map(|text| (clip(text, 120), theme::text(), 13.0))
+            .map(|text| (clip_tail(text, 100), theme::text(), 13.0))
             .unwrap_or_else(|| {
                 let text = if listening {
                     "Speak now — words appear as you talk."
@@ -194,13 +194,14 @@ impl Render for DraftHud {
     }
 }
 
-fn clip(text: &str, max: usize) -> String {
+/// Keep the newest words. While someone is still talking, the end of the
+/// rolling preview is what matters, not the start of the window.
+fn clip_tail(text: &str, max: usize) -> String {
     let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut chars = normalized.chars();
-    let head: String = chars.by_ref().take(max).collect();
-    if chars.next().is_some() {
-        format!("{head}…")
+    let chars = normalized.chars().collect::<Vec<_>>();
+    if chars.len() <= max {
+        normalized
     } else {
-        head
+        format!("…{}", chars[chars.len() - max..].iter().collect::<String>())
     }
 }

@@ -549,6 +549,19 @@ impl DraftApp {
         if recording.samples.len() < 12_000 {
             return;
         }
+        // Whisper invents words on pure silence, so only ask for a preview
+        // when the tail actually carries voice-level energy.
+        let rms = (recording
+            .samples
+            .iter()
+            .map(|sample| sample * sample)
+            .sum::<f32>()
+            / recording.samples.len() as f32)
+            .sqrt();
+        if rms < 0.0015 {
+            self.preview_at = Instant::now();
+            return;
+        }
         let job = Job {
             samples: recording.samples,
             serial: self.serial,
@@ -956,7 +969,7 @@ impl Render for DraftApp {
                     let partial = self
                         .partial
                         .as_deref()
-                        .map(preview)
+                        .map(partial_preview)
                         .filter(|text| !text.trim().is_empty());
                     let (words, words_color) = match partial {
                         Some(text) => (text, theme::text()),
@@ -1535,5 +1548,16 @@ fn preview(text: &str) -> String {
         format!("{head}…")
     } else {
         head
+    }
+}
+
+/// The newest words of a rolling preview, so the live view keeps up as the
+/// speaker continues instead of showing the start of the window.
+fn partial_preview(text: &str) -> String {
+    let chars = text.chars().collect::<Vec<_>>();
+    if chars.len() <= 200 {
+        text.to_owned()
+    } else {
+        format!("…{}", chars[chars.len() - 200..].iter().collect::<String>())
     }
 }
