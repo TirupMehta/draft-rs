@@ -35,6 +35,7 @@ fn run() -> Result<()> {
         Some("mic") => mic(&args[1..])?,
         Some("listen") => listen(&args[1..])?,
         Some("model") => model(&args[1..])?,
+        Some("history") => history(&args[1..])?,
         Some("--version" | "-V") => println!("draft {VERSION}"),
         Some("--help" | "-h") => print_help(),
         Some(other) => {
@@ -63,6 +64,10 @@ Usage:
   draft model install           Download, verify, and install the default model
   draft model verify [path]     Check a file against the pinned artifact
   draft model remove            Delete the installed model
+  draft history list            Show recent transcripts
+  draft history search <words>  Search transcripts
+  draft history delete <id>     Delete one entry
+  draft history clear           Delete every entry
   draft --version               Print the version
   draft --help                  Show this help
 
@@ -89,6 +94,10 @@ Mic options:
 
 Model options:
   --dir <path>                  Models folder (default: the Draft4 data folder)
+
+History options:
+  --limit <n>                   Entries to show (default: 20)
+  --json                        Print entries as JSON
 
 Listen options:
   --paste                       Insert the result at the current focus
@@ -391,6 +400,147 @@ fn human_bytes(bytes: u64) -> String {
     } else {
         format!("{:.1} MB", bytes as f64 / MB)
     }
+}
+
+fn history(args: &[String]) -> Result<()> {
+    let mut limit = 20usize;
+    let mut json = false;
+    let mut rest: Vec<&String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--limit" => {
+                limit = args
+                    .get(index + 1)
+                    .context("--limit needs a number")?
+                    .parse()
+                    .context("--limit needs a number")?;
+                index += 2;
+            }
+            "--json" => {
+                json = true;
+                index += 1;
+            }
+            _ => {
+                rest.push(&args[index]);
+                index += 1;
+            }
+        }
+    }
+
+    match rest.first().map(|argument| argument.as_str()) {
+        None | Some("list") => {
+            let history = open_history()?;
+            print_history(&history.recent(limit), json)
+        }
+        Some("search") => {
+            let query = rest[1..]
+                .iter()
+                .map(|argument| argument.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if query.trim().is_empty() {
+                bail!("history search needs words to look for");
+            }
+            let history = open_history()?;
+            print_history(&history.search(&query, limit), json)
+        }
+        Some("delete") => {
+            let id = rest.get(1).context("history delete needs an entry id")?;
+            let mut history = open_history()?;
+            if history.delete(id)? {
+                println!("Deleted {id}");
+                Ok(())
+            } else {
+                bail!("no history entry with id {id}")
+            }
+        }
+        Some("clear") => {
+            let mut history = open_history()?;
+            let count = history.entries().len();
+            history.clear()?;
+            println!("Cleared {count} entries from {}", history.path().display());
+            Ok(())
+        }
+        Some("--help" | "-h") => {
+            print_help();
+            Ok(())
+        }
+        Some(other) => bail!("unknown history command: {other} (try `draft history --help`)"),
+    }
+}
+
+fn open_history() -> Result<draft_core::history::History> {
+    let path = draft_core::paths::history_path();
+    let history = draft_core::history::History::open(
+        path,
+        draft_core::history::HistoryPolicy::default(),
+        draft_core::history::now_ms(),
+    )?;
+    if history.recovered_from_corruption {
+        eprintln!("warning: the previous history file was malformed and was moved aside");
+    }
+    Ok(history)
+}
+
+fn print_history(entries: &[&draft_core::history::HistoryEntry], json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(entries)?);
+        return Ok(());
+    }
+    if entries.is_empty() {
+        println!("No history entries.");
+        return Ok(());
+    }
+    for entry in entries {
+        let duration = entry
+            .duration_ms
+            .map(|ms| format!("{:>5.1}s", ms as f64 / 1000.0))
+            .unwrap_or_else(|| "     -".to_owned());
+        let text = entry.text.replace(['\n', '\r'], " ");
+        println!(
+            "{}  {}  {:18}  {}",
+            format_utc(entry.created_at_ms),
+            duration,
+            entry.id,
+            text
+        );
+    }
+    Ok(())
+}
+
+/// `YYYY-MM-DD HH:MM` in UTC. History timestamps are stored as Unix millis; a
+/// portable display without a timezone database stays honest by saying UTC.
+fn format_utc(ms: i64) -> String {
+    let seconds = ms.div_euclid(1_000);
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}",
+        seconds_of_day / 3_600,
+        (seconds_of_day % 3_600) / 60
+    )
+}
+
+/// Howard Hinnant's days-to-civil algorithm.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    };
+    let year = if month <= 2 { year + 1 } else { year };
+    (year, month as u32, day as u32)
 }
 
 struct Job {

@@ -27,12 +27,16 @@ transcript.
   system default when a saved device disappears.
 - `draftctl model install` downloads the shipping model once, verifies its exact
   SHA-256, and installs it atomically; interrupted downloads resume.
+- Retained history at the core: text plus duration, with a retention window, an
+  entry cap, a byte cap, search, delete, and clear (`draftctl history`). It is
+  not yet recorded from the app or shown in a pane.
 - `draftctl` for model management, transcription, microphone capture, and
   benchmark runs.
 
-Not yet: streaming partial text, history, the multi-model catalog, installer and
-signed updates, macOS/Linux shells, and mobile. Real-speech WER parity with v3.5
-is the open release gate; see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+Not yet: streaming partial text, the history pane, the multi-model catalog,
+installer and signed updates, macOS/Linux shells, and mobile. Real-speech WER
+parity with v3.5 is the open release gate; see
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 Draft v3.5 keeps its data in `%LOCALAPPDATA%\Draft`. This rewrite uses
 `%LOCALAPPDATA%\Draft4` and never reads, migrates, or overwrites the shipping

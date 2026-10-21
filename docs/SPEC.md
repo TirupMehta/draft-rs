@@ -13,9 +13,10 @@ gymnastics.
 **Current build (Windows x64, 2026-10-21).** Hold-to-talk dictation, six
 shortcut presets, the tray and click-through HUD, persisted shortcut/microphone/
 model settings, the microphone level check and fallback, the pinned resumable
-model installer, and the Vulkan benchmark are working. Streaming, history,
-installer/updates, macOS/Linux, and mobile are not built yet. Real-speech WER
-parity is the open release gate. [`ROADMAP.md`](ROADMAP.md) is the live checklist.
+model installer, the bounded history store, and the Vulkan benchmark are
+working. Streaming, the history pane, installer/updates, macOS/Linux, and mobile
+are not built yet. Real-speech WER parity is the open release gate.
+[`ROADMAP.md`](ROADMAP.md) is the live checklist.
 
 ## 2. Why this exists
 
@@ -156,6 +157,7 @@ crates/draft-core/src/text.rs       pure text helpers and meaningful-text checks
 crates/draft-core/src/settings.rs   schema, atomic persistence, forward-compatible fields
 crates/draft-core/src/paths.rs      the Draft4 per-user data and model folders
 crates/draft-core/src/models.rs     pinned catalog, verified/resumable install, delete
+crates/draft-core/src/history.rs    bounded retained history, search, delete, clear
 crates/draft-engine/src/lib.rs      transcribe.cpp model and warm session owner
 crates/draft-audio/src/lib.rs       cpal capture, device selection, level, 16 kHz resample
 crates/draft-hotkey/src/lib.rs      cross-platform hotkey vocabulary and events
@@ -176,7 +178,6 @@ Planned, not present yet:
 ```text
 crates/draft-core/src/stream.rs     stream state, finish/fallback policy
 crates/draft-core/src/pipeline.rs   corrections, hotwords, transformations
-crates/draft-core/src/history.rs    bounded retained history
 crates/draft-core/src/api.rs        stable C ABI for mobile shells (M7)
 apps/desktop/src/platform/...       macOS/Linux hooks, audio, paste, HUD
 apps/mobile/...                     SwiftUI/Compose shells over the C ABI (M7)
@@ -237,7 +238,11 @@ bounds only; if v3.5 is faster, v3.5 wins.
   syncs it, and only then renames it into place; a mismatch is deleted.
 - Audio is never persisted by default.
 - History stores text and bounded metadata only: no audio, no window titles, no
-  full URLs.
+  full URLs. Defaults are a 30-day window, 2,000 entries, and an 8 MB file; the
+  tightest limit wins. Turning retention off accepts no new entries and keeps
+  existing ones. A malformed file is quarantined, never silently overwritten.
+- History timestamps are Unix milliseconds; `draftctl history` prints them as UTC
+  so the display never claims a local timezone it cannot know.
 - Diagnostic logs may contain transcript text; they stay local and are rotated.
 - Network requests are limited to model downloads, update checks, and an
   explicitly configured rewrite provider.
@@ -247,7 +252,8 @@ bounds only; if v3.5 is faster, v3.5 wins.
 Status (2026-10-21): M0 is complete on Windows, and the M1 latency/engine slice
 is complete while WER and the repeatable paste run remain. M2 has the HUD and
 the pinned single-model installer; the Parakeet preview catalog and streaming
-remain. M3 has settings and microphone selection only. M4-M7 are not started.
+remain. M3 has settings, microphone selection, and the bounded history store
+(the pane and recording are not wired yet). M4-M7 are not started.
 
 ### M0 — Scaffold and proof
 

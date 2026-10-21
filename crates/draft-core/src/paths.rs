@@ -30,3 +30,10 @@ pub fn models_dir() -> PathBuf {
 pub fn default_model_path() -> PathBuf {
     models_dir().join(models::DEFAULT_MODEL.file_name)
 }
+
+/// The retained dictation history file.
+pub fn history_path() -> PathBuf {
+    std::env::var_os("DRAFT_HISTORY_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir().join("history.json"))
+}

@@ -4,6 +4,7 @@
 //! operating system. Desktop and mobile shells own those details and call into
 //! these modules.
 
+pub mod history;
 pub mod models;
 pub mod paths;
 pub mod settings;
