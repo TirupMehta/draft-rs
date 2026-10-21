@@ -24,8 +24,9 @@ Licensed under the MIT License.
 [Source](https://github.com/handy-computer/transcribe.cpp)
 
 **Whisper large-v3-turbo** — the speech model. Whisper is by OpenAI. The GGUF
-build used by Draft is distributed by handy-computer. The model is downloaded
-separately and is subject to its own terms; see the model page.
+build used by Draft is distributed by handy-computer. The model is distributed
+with Draft (or fetched once when building from source) and is subject to its own
+terms; see the model page.
 [Model](https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf) ·
 [Whisper](https://github.com/openai/whisper)
 
@@ -66,5 +67,5 @@ itself makes no network request for them.
 ## License
 
 Draft is released under the [MIT License](LICENSE). The bundled typefaces are
-under the SIL Open Font License 1.1. The speech model is downloaded separately
+under the SIL Open Font License 1.1. The speech model is distributed with Draft
 and is subject to its own terms.

@@ -2539,7 +2539,7 @@ impl DraftApp {
             ))
             .child(assurance(
                 palette,
-                "The model downloads once and is checked against a pinned checksum.",
+                "The model is installed once and checked against a pinned checksum.",
             ))
             .child(assurance(
                 palette,
@@ -2739,7 +2739,7 @@ impl DraftApp {
                     .text_size(px(theme::type_size::SMALL))
                     .line_height(px(18.0))
                     .text_color(palette.secondary)
-                    .child("Draft is MIT-licensed. The bundled fonts are under the SIL Open Font License. The model is downloaded separately and is subject to its own terms."),
+                    .child("Draft is MIT-licensed. The bundled fonts are under the SIL Open Font License. The model is distributed with Draft and is subject to its own terms."),
             )
             .child(
                 div()

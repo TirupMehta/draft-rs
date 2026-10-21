@@ -429,7 +429,7 @@ The license column is the license expression reported by each crate. The full te
 
 ## Speech model
 
-The speech model is **Whisper large-v3-turbo** by OpenAI, distributed as a GGUF build by handy-computer. It is downloaded separately and is subject to its own terms. See <https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf>.
+The speech model is **Whisper large-v3-turbo** by OpenAI, distributed as a GGUF build by handy-computer. It is distributed with Draft and is subject to its own terms. See <https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf>.
 
 ## Project license
 

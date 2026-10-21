@@ -75,9 +75,10 @@ Draft is built to be private without asking you to trust a policy.
 - History contains **text and duration only**.
 - Settings, history, logs, and the model live under
   `%LOCALAPPDATA%\Draft4`.
-- The **only network exception** is the one-time model download: 1.63 GB from
-  Hugging Face, verified against a pinned SHA-256. After that, dictation works
-  offline.
+- The Windows release installer includes the speech model, so dictation needs
+  no network. If you build from source without the bundled model, the one-time
+  model download is the only network exception: 1.63 GB, verified against a
+  pinned SHA-256.
 - There is no telemetry, analytics, crash reporting, or update ping.
 - The GitHub and X actions on the Credits page open your browser only when you
   choose them.
@@ -108,9 +109,9 @@ the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
    [Releases](https://github.com/TirupMehta/draft-rs/releases/latest).
 2. Run the installer. It installs for the current user under
    `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
-3. Install the speech model once. Release installers built with `-IncludeModel`
-   ship it; otherwise run `draftctl model install` to download the 1.63 GB F16
-   GGUF and verify its SHA-256 before use.
+3. The release installer includes the speech model; no separate download is
+   needed. If you build an installer without `-IncludeModel`, run
+   `draftctl model install` once to fetch and verify it.
 4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
 
 The installer is **not code-signed yet**, so Windows SmartScreen may show a
@@ -218,6 +219,6 @@ Windows setup, the design rules, the checks that must pass, and the license.
 ## License
 
 Draft is released under the [MIT License](LICENSE). The bundled typefaces are
-under the SIL Open Font License 1.1. The speech model is downloaded separately
-and is subject to its own terms. See [NOTICE](NOTICE),
+under the SIL Open Font License 1.1. The speech model is distributed with
+Draft and is subject to its own terms. See [NOTICE](NOTICE),
 [CREDITS.md](CREDITS.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

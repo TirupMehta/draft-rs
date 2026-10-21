@@ -34,8 +34,10 @@ at `C:\all\Draft`.
    not show it.
 4. **Privacy copy must be accurate.** Say what is true: audio is captured only
    while the key is held, transcribed locally, and discarded. The one exception
-   is the model file, which is downloaded once and checksum-verified. Do not
-   claim "no network activity" without naming that exception.
+   is the model file, which is installed once (bundled with the release
+   installer, or downloaded from the pinned source when building without it) and
+   checksum-verified. Do not claim "no network activity" without naming that
+   exception.
 5. **Power and speed are product features.** Idle must cost nothing. See
    §8 before adding any animation, timer, or repaint.
 6. **No new dependencies without a reason in the commit message.** No network

@@ -43,8 +43,8 @@ cargo run -p draft -- model status
   state, a latency number, or a permission.
 - Keep idle at zero repaints. If you add motion, it must settle and stop.
 - No new runtime dependency, telemetry, crash reporting, or network call
-  without a clear reason in the pull request. The model download is the one
-  documented exception.
+  without a clear reason in the pull request. The model install (or download,
+  when building without the bundled model) is the one documented exception.
 - Put test-only affordances in `tools/` or behind `debug_assertions`, never in
   the shipped path.
 - Update the docs when behavior, defaults, or the design rules change.
