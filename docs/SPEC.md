@@ -241,6 +241,9 @@ bounds only; if v3.5 is faster, v3.5 wins.
   full URLs. Defaults are a 30-day window, 2,000 entries, and an 8 MB file; the
   tightest limit wins. Turning retention off accepts no new entries and keeps
   existing ones. A malformed file is quarantined, never silently overwritten.
+- A finished transcript is recorded on the app thread after transcription,
+  whether or not the paste succeeded. A history-write failure is logged and
+  never blocks dictation.
 - History timestamps are Unix milliseconds; `draftctl history` prints them as UTC
   so the display never claims a local timezone it cannot know.
 - Diagnostic logs may contain transcript text; they stay local and are rotated.
@@ -252,8 +255,9 @@ bounds only; if v3.5 is faster, v3.5 wins.
 Status (2026-10-21): M0 is complete on Windows, and the M1 latency/engine slice
 is complete while WER and the repeatable paste run remain. M2 has the HUD and
 the pinned single-model installer; the Parakeet preview catalog and streaming
-remain. M3 has settings, microphone selection, and the bounded history store
-(the pane and recording are not wired yet). M4-M7 are not started.
+remain. M3 has settings, microphone selection, and the bounded history store,
+which the app records after each finished transcript; the pane is not wired yet.
+M4-M7 are not started.
 
 ### M0 — Scaffold and proof
 

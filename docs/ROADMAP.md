@@ -82,8 +82,9 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [x] History store: text and duration only, 30-day default window, 2,000
       entries, 8 MB cap, case-insensitive search, delete, clear, and a
       quarantine for a malformed file. Exposed through `draftctl history`.
-- [ ] Record finished dictations into history and add a History pane with copy,
-      delete, clear, and retention controls.
+- [x] Record finished dictations into history from the app thread; a failed
+      write never blocks dictation.
+- [ ] History pane with search, copy, delete, clear, and retention controls.
 - [ ] Corrections, taught words, hotwords.
 - [ ] Launch at login, sounds, theme.
 

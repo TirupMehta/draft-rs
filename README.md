@@ -28,8 +28,8 @@ transcript.
 - `draftctl model install` downloads the shipping model once, verifies its exact
   SHA-256, and installs it atomically; interrupted downloads resume.
 - Retained history at the core: text plus duration, with a retention window, an
-  entry cap, a byte cap, search, delete, and clear (`draftctl history`). It is
-  not yet recorded from the app or shown in a pane.
+  entry cap, a byte cap, search, delete, and clear (`draftctl history`). The app
+  records each finished transcript; the History pane is not built yet.
 - `draftctl` for model management, transcription, microphone capture, and
   benchmark runs.
 

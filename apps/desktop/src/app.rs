@@ -79,6 +79,7 @@ pub struct DraftApp {
     model: PathBuf,
     settings: Settings,
     settings_path: PathBuf,
+    history: Option<draft_core::history::History>,
     hud: Entity<DraftHud>,
     hud_snapshot: Option<HudSnapshot>,
     hud_visible: bool,
@@ -137,6 +138,25 @@ impl DraftApp {
             ),
         };
         let initial_error = hotkey_error.clone();
+        let history = match draft_core::history::History::open(
+            draft_core::paths::history_path(),
+            draft_core::history::HistoryPolicy::default(),
+            draft_core::history::now_ms(),
+        ) {
+            Ok(history) => {
+                if history.recovered_from_corruption {
+                    tracing::warn!(
+                        path = %history.path().display(),
+                        "the previous history file was malformed and was moved aside"
+                    );
+                }
+                Some(history)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "history is unavailable; dictation will continue");
+                None
+            }
+        };
 
         Self {
             phase: if hotkey_error.is_some() {
@@ -167,6 +187,7 @@ impl DraftApp {
             model: model_display,
             settings,
             settings_path,
+            history,
             hud,
             hud_snapshot: None,
             hud_visible: false,
@@ -523,6 +544,14 @@ impl DraftApp {
                 paste_error,
             } => {
                 self.pending_jobs = self.pending_jobs.saturating_sub(1);
+                if let Some(history) = self.history.as_mut() {
+                    let duration_ms = (audio_s * 1000.0).round() as u64;
+                    if let Err(error) =
+                        history.add(&text, Some(duration_ms), draft_core::history::now_ms())
+                    {
+                        tracing::warn!(%error, "could not record the transcript in history");
+                    }
+                }
                 self.last = Some(LastResult {
                     text,
                     engine_ms: elapsed.as_millis(),
