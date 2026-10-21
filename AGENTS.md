@@ -127,9 +127,9 @@ radius in a view.
 
 ### Palettes
 
-`Palette::dark()` is the default; `Palette::light()` is a designed second
+`Palette::light()` is the default; `Palette::dark()` is a designed second
 theme, not an inversion. The active palette follows the `appearance` setting
-(`system` follows the OS, including live system changes).
+(`light` by default; `system` follows the OS, including live system changes).
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
@@ -191,9 +191,13 @@ for pills and switches.
   48 px title bar: brand mark, wordmark, the on-device pill, the
   Dictate/Settings control, then minimize and close. Exactly one wordmark.
 * **One window size:** 680x500 client area for both views. The everyday view
-  uses a centered 560 px column inside it. `WINDOW_SIZE` in `app.rs` is the
-  single source. The window is not resizable, so fullscreen is not reachable
-  and switching views never reallocates the GPU surface.
+  uses the full width with 32 px gutters: a 340 px instruction column and a
+  244 px input band. `WINDOW_SIZE` in `app.rs` is the single source. The window
+  is not resizable, so fullscreen is not reachable and switching views never
+  reallocates the GPU surface.
+* **Credits is part of Settings**, not a modal: the author, GitHub and X
+  actions, a single Built with panel, and the license. `Open licenses` reveals
+  the `licenses` folder installed beside `draft.exe`.
 * **The title bar is draggable** from the brand or the empty space between the
   brand and the view control (`WindowControlArea::Drag`). Controls and buttons
   must not sit inside a drag region or they will not receive clicks.
@@ -255,7 +259,7 @@ when there is no sound.
 | `paste` | bool | true | insert the transcript at the cursor |
 | `live_preview` | bool | false | show partial text while speaking (extra GPU work) |
 | `launch_at_startup` | bool | true | start in the tray at sign-in |
-| `appearance` | string | `"system"` | `system`, `light`, or `dark` |
+| `appearance` | string | `"light"` | `light` (default), `dark`, or `system` |
 
 Missing fields fall back to the defaults, so adding a field is a compatible
 change. Unknown fields are ignored.

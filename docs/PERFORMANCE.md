@@ -151,10 +151,10 @@ Policy:
 - When enabled, a preview's cooldown starts after the pass **finishes**, not
   when it is queued. The gap is three times the measured pass time, clamped to
   1.2-3.0 s.
-- The event loop still polls at 60 Hz so a hotkey release is not delayed, but
-  the visible window repaints at most 30 times a second, the HUD at 15, and a
-  hidden main window is not repainted for level changes. This removes continuous
-  D3D work while dictating into another application.
+- The event loop still polls at 60 Hz so a hotkey release is not delayed. The
+  visible window and the HUD repaint at 60 fps while audio is open, and a hidden
+  main window is not repainted for level changes. Idle still costs zero
+  repaints.
 - Preview passes use `temperature_inc = 0` and no previous-token conditioning:
   one display-only pass, never a fallback loop. Final passes keep the normal
   decode settings.

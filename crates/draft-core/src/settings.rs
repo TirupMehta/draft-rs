@@ -36,7 +36,8 @@ pub struct Settings {
     /// shell owns the Windows Run entry; this field is the source of truth and
     /// lets the user turn it off again without hunting through Task Manager.
     pub launch_at_startup: bool,
-    /// Which palette the interface uses: `system`, `light`, or `dark`.
+    /// Which palette the interface uses. `light` is the default; `system`
+    /// follows the operating system.
     pub appearance: String,
 }
 
@@ -49,7 +50,7 @@ impl Default for Settings {
             paste: true,
             live_preview: false,
             launch_at_startup: true,
-            appearance: "system".to_owned(),
+            appearance: "light".to_owned(),
         }
     }
 }
@@ -131,7 +132,7 @@ mod tests {
         assert!(settings.paste);
         assert!(!settings.live_preview);
         assert!(settings.launch_at_startup);
-        assert_eq!(settings.appearance, "system");
+        assert_eq!(settings.appearance, "light");
     }
 
     #[test]
@@ -193,8 +194,8 @@ mod tests {
             "older files opt into the tray-first startup default"
         );
         assert_eq!(
-            settings.appearance, "system",
-            "older files follow the system appearance"
+            settings.appearance, "light",
+            "older files use the light default"
         );
     }
 

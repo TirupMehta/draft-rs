@@ -9,12 +9,16 @@ Copy everything below into the next agent's prompt. It is written to be
 self-contained: paths, commands, current state, decisions, and the exact next
 steps.
 
+> **Current shell (v0.2.0):** one 680x500 window with no maximize or
+> fullscreen path; light is the default theme; settings has seven sections
+> including Credits; the interface is Inter and JetBrains Mono. Where the
+> historical design notes below disagree, `AGENTS.md` and section 5 win.
+>
 > **Status update:** the redesign described in section 6 has been implemented,
 > built, installed, and verified. The remaining work is the polish list in
-> section 10. The temporary inspection hooks described in section 5 have been
-> removed; the inspection tools in section 8 remain in `tools/inspect/` and
-> still work, but they now drive the app through the tray instead of the
-> removed environment variables.
+> section 10. The inspection tools in section 8 remain in `tools/inspect/`.
+> `DRAFT_VIEW` / `DRAFT_SECTION` are compiled only in debug builds; release
+> builds always open on Dictate.
 
 ---
 
@@ -94,10 +98,10 @@ settings) and the whole render tree.
   239/234/375/543/1186 ms. JFK 264 ms.
 * Live preview is **opt-in** (off by default) because each preview pass is a
   full GPU pass and made fans spin.
-* Quiet rendering: HUD repaints at 15 fps, visible main window at 30 fps, a
-  hidden window is not repainted at all, the event poll stays at 60 Hz for
-  hotkey latency, previews are throttled (next gap = 3x pass time, clamped
-  1200-3000 ms).
+* Quiet rendering: HUD and the visible main window repaint at 60 fps while
+  audio is open, a hidden window is not repainted at all, the event poll stays
+  at 60 Hz for hotkey latency, previews are throttled (next gap = 3x pass time,
+  clamped 1200-3000 ms).
 * Launch at sign-in: `settings.launch_at_startup` (default true) projected onto
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `Draft` =
   `"<exe>" --background`; the installer writes the same value and removes it on
@@ -105,40 +109,29 @@ settings) and the whole render tree.
 * Version bumped to **0.2.0** (workspace + Inno `AppVersion`).
 * Tests: 44 in `draft-core`, 3 in `draft-audio`. Local gate is green.
 
-## 5. Current uncommitted state (this redesign)
+## 5. Current state (v0.2.0)
 
-`git status` is dirty. Uncommitted work includes:
+The redesign is committed. The app is one 680x500 window; the interface is
+Inter and JetBrains Mono, bundled; light is the default palette and dark is
+the designed second theme.
 
-* `crates/draft-core/src/settings.rs`: new `appearance: String` field
-  (`system` | `light` | `dark`), default `"system"`.
-* `apps/desktop/src/theme.rs`: rewritten as a real design system —
-  `Appearance` enum, `Palette` struct with **two** intentional palettes
-  (`Palette::dark()`, `Palette::light()`), `space`, `type_size`, `radius`
-  modules, `display_font()` / `text_font()` (Segoe UI Variable Display / Text),
-  `hud_shadow()`.
-* `apps/desktop/src/app.rs`: rewritten rendering.
-  * `enum View { Dictate, Settings }`, `enum Section { Dictation, Audio,
-    Recognition, Appearance, Privacy, Advanced }`.
-  * `dictate_view` (focal state, last transcript, privacy line, engine line),
-    `settings_view` (rail + pane), per-section row builders.
-  * `state_block` renders Ready / Loading / Listening / Transcribing / Error
-    honestly. The Listening meter is a **real** amplitude history
-    (`VecDeque<f32>`, `ENVELOPE_SAMPLES = 48`, pushed in `poll`).
-  * `palette_for(window)` follows the OS in `System` mode.
-* `apps/desktop/src/hud.rs`: rewritten HUD (fixed 560 px card, real level
-  bars, state label, ESC chip).
-* `apps/desktop/src/window_control.rs`: `set_title_bar_dark(hwnd, dark)` via
-  `DwmSetWindowAttribute`.
-* `apps/desktop/Cargo.toml`: added the `Win32_Graphics_Dwm` feature.
-* `apps/desktop/src/main.rs`: `--background` starts hidden in the tray;
-  window sizes are 560x240 (Dictate) and 680x500 (Settings).
-* `crates/draft-paste/src/lib.rs`: new `copy_text`.
+* `crates/draft-core/src/settings.rs`: `appearance` (`light` default, `dark`,
+  `system`).
+* `apps/desktop/src/theme.rs`: two designed palettes, Inter/JetBrains Mono,
+  type/spacing tokens.
+* `apps/desktop/src/app.rs`: Dictate and Settings share one window. The
+  everyday view is full width with 32 px gutters; settings has seven sections
+  (Dictation, Audio, Recognition, Appearance, Privacy, Advanced, Credits).
+  The Credits section has the author, GitHub/X actions, Built with, and the
+  installed license folder.
+* `apps/desktop/src/hud.rs`: 60 fps click-through HUD with the real level.
+* `apps/desktop/src/motion.rs`: 160 ms hover, 90 ms press, zero motion when
+  Windows animations are off.
+* `apps/desktop/src/main.rs`: `--background` starts hidden; one window size.
+* `initial_view` / `initial_section` are `#[cfg(debug_assertions)]` inspection
+  hooks. Release builds always open Dictate.
 
-**Temporary inspection hooks that MUST be removed before committing:**
-`fn initial_view()` / `fn initial_section()` in `app.rs` read
-`DRAFT_VIEW` / `DRAFT_SECTION`, and `main.rs` sizes the window from
-`DRAFT_VIEW`. Delete both, restore the plain `View::Dictate` /
-`Section::Dictation` initialisers.
+Run `git status` before a release; the repository should be clean.
 
 ## 6. What the design must become next
 
@@ -198,12 +191,12 @@ numbers available are `engine_ms`, `audio_s`, and `load_ms`.
 ## 7. Performance rules (do not regress)
 
 * Idle window = **zero** repaints. `poll()` only notifies on state change.
-* HUD 15 fps, visible window 30 fps, event poll 60 Hz.
+* HUD and visible window 60 fps while audio is open; event poll 60 Hz.
 * No continuous animation, no blur, no gradients, no large shadow stacks.
   One small shadow on the HUD is acceptable (it floats over other apps).
 * The transcribing ellipsis animates only while a job is pending (brief).
-* Keep the HUD's repaint at 15 fps; the meter must be driven by the real
-  `Recorder::level()`.
+* Keep the HUD's repaint at 60 fps while recording; the meter must be driven by
+  the real `Recorder::level()`.
 * No new dependencies; no network calls at runtime.
 
 ## 8. How to inspect the rendered result
@@ -241,23 +234,20 @@ Start-Process dist\Draft-Setup-0.2.0.exe -ArgumentList '/VERYSILENT','/SUPPRESSM
 
 * **Seamless chrome.** `TitlebarOptions { appears_transparent: true }` removes
   the system caption; Draft draws its own 44 px title bar (brand, wordmark,
-  Dictate/Settings control, minimize, maximize, close) with a hairline under
-  it. The window is dragged from the brand or the empty title-bar space using
+  Dictate/Settings control, minimize, close) with a hairline under it. The
+  window is dragged from the brand or the empty title-bar space using
   `WindowControlArea::Drag`.
-* **Type scale raised** to 12/13/14/16/21 with explicit line heights, and the
-  body and display faces are Segoe UI Variable Text and Display.
-* **Two views** — Dictate (560x240) and Settings (680x500) — switched with a
-  cross-fade: the old view fades out (70 ms), the window is resized through
-  `Window::resize` while nothing is visible, and the new view fades in
-  (140 ms). The resize goes through the framework so the GPU surface follows.
-* **`motion.rs`** is a small animation store: one eased 0..1 value per control
-  for hover, press, view selection, and the section dissolve. It respects
-  `SPI_GETCLIENTAREAANIMATION`, so Windows' "animation effects" setting turns
-  every transition off.
-* **Sections** are grouped by intent with an animated selection bar, and a
-  section change dissolves the pane.
-* **Light and dark palettes**, both deliberate, with the native frame told
-  which appearance to use through `DwmSetWindowAttribute`.
+* **Type scale** is 12/13/14/17/26/34/48 with explicit line heights; the body
+  face is Inter and the live timer is JetBrains Mono, both bundled.
+* **One 680x500 window** for both views. Switching is instant: no resize, no
+  cross-fade, and the GPU surface is never reallocated.
+* **`motion.rs`** is a small animation store: 160 ms hover and 90 ms press per
+  control. It respects `SPI_GETCLIENTAREAANIMATION`, so Windows' "animation
+  effects" setting turns every transition off.
+* **Settings** has seven sections grouped by intent, including Credits, with a
+  quiet animated selection bar.
+* **Light is the default palette; dark is a designed second theme**, with the
+  native frame told which appearance to use through `DwmSetWindowAttribute`.
 
 ## 11. Still open
 

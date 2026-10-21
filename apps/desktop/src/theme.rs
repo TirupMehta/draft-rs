@@ -8,10 +8,9 @@
 //!
 //! * One accent. Amber marks live state: recording, selection, focus.
 //! * Hierarchy comes from type and space. Containers are the exception.
-//! * Dark is the default because Draft floats over other applications. The
-//!   graphite is warm, not blue-black, so the amber sits in the same room.
-//! * Light is designed, not inverted: warm paper, deeper amber, the same
-//!   structure and the same restraint.
+//! * Light is the default: warm paper, deep amber, quiet hairlines.
+//! * Dark is the designed second theme, not an inversion: warm graphite,
+//!   lifted surfaces, the same structure and the same restraint.
 
 use gpui::{Rgba, px, rgb, rgba};
 

@@ -1,0 +1,11 @@
+Draft
+Copyright (c) 2026 Tirup Mehta
+
+Draft includes third-party software. See CREDITS.md and
+THIRD_PARTY_NOTICES.md for attribution and license details.
+
+The interface is built on GPUI by Zed Industries (Apache-2.0). Inference uses
+transcribe.cpp (MIT). The speech model is Whisper large-v3-turbo by OpenAI,
+distributed as a GGUF build by handy-computer. The bundled typefaces are Inter
+by Rasmus Andersson and JetBrains Mono by JetBrains, both under the SIL Open
+Font License 1.1.

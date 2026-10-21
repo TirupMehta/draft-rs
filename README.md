@@ -1,157 +1,219 @@
 # Draft
 
-**Speak. It appears.** Local-first voice dictation for every device, built in
-Rust.
+**Private dictation for Windows.** Hold a key, speak, release — the words appear
+at your cursor. The model runs on your machine.
 
-Draft is a native, GPU-accelerated dictation app: hold a key, speak, release,
-and accurate text appears at your cursor. Speech never leaves the machine. The
-final pass uses Whisper large-v3-turbo, kept warm on the GPU; the capture and
-inference split is built for streaming previews without slowing the final
-transcript.
+Local Whisper large-v3-turbo · Vulkan · Native Rust · No account · No telemetry
 
-> **Status:** pre-alpha. The Windows x64 shell runs the hold-to-talk loop today.
-> macOS, Linux, and mobile are later milestones, and the shipping Windows app is
-> still [Draft v3](../Draft).
+[Download](#install) · [Project](https://github.com/TirupMehta/draft-rs) ·
+[GitHub](https://github.com/TirupMehta) · [X](https://x.com/TirupMehta)
 
-## What works today
+![Draft, ready to dictate](docs/screenshots/ready.png)
 
-- Hold Right Ctrl (or Right Alt, F8, F9, Pause, or Scroll Lock), speak, release,
-  and paste locally at the cursor.
-- Opt-in live partial text while you hold the key. Settings > Live preview lets
-  the warm model re-read voiced audio and show words before you release. It is
-  off by default because each preview is a full GPU pass that can make laptop
-  fans louder. The final transcript still uses the complete clip, and previews
-  never paste.
-- The model loads once on Vulkan and stays warm; release p95 is 2.9-4.1x faster
-  than Draft v3.5 on the benchmark clips.
-- Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
-  Draft starts in the tray when you sign in; turn that off under Settings >
-  Startup.
-- One seamless window: Draft draws its own title bar, so the chrome and the
-  body are a single surface with one wordmark and one hairline.
-- Settings are grouped by intent — Dictation, Audio, Recognition, Appearance,
-  Privacy, Advanced — and every control eases into place instead of jumping.
-- Light and dark themes, both designed; the system setting is the default.
-- Click-through recording HUD with a live waveform, optional partial text, and
-  listening and transcribing states.
-- Preferences persist the shortcut, microphone, and model path to
-  `%LOCALAPPDATA%\Draft4\settings.json`; choices survive restart.
-- Microphone picker with a four-second level check and automatic fallback to the
-  system default when a saved device disappears.
-- `draftctl model install` downloads the shipping model once, verifies its exact
-  SHA-256, and installs it atomically; interrupted downloads resume.
-- Retained history at the core: text plus duration, with a retention window, an
-  entry cap, a byte cap, search, delete, and clear (`draftctl history`). The app
-  records each finished transcript; the History pane is not built yet.
-- A per-user Windows installer with a standard wizard, Start Menu and optional
-  desktop shortcuts, tray-first sign-in startup, and a clean uninstall. No
-  administrator prompt and no console window. It is not code-signed yet.
-- `draftctl` for model management, transcription, microphone capture, and
-  benchmark runs.
+Draft is a native Windows dictation app built around a simple loop: hold the
+key, speak naturally, and release. The audio is captured only while the key is
+held, transcribed locally, pasted at the cursor, and discarded. There is no
+cloud, no account, and no audio leaving the machine.
 
-Not yet: the native streaming preview model, the history pane, the multi-model
-catalog, signed installers and updates, macOS/Linux shells, and mobile.
-Real-speech WER parity with v3.5 is the open release gate; see
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+| Listening | Settings |
+| --- | --- |
+| ![Listening](docs/screenshots/listening.png) | ![Settings](docs/screenshots/settings.png) |
 
-Draft v3.5 keeps its data in `%LOCALAPPDATA%\Draft`. This rewrite uses
-`%LOCALAPPDATA%\Draft4` and never reads, migrates, or overwrites the shipping
-app's settings, history, or logs.
+| Credits | Recording HUD |
+| --- | --- |
+| ![Credits](docs/screenshots/credits.png) | ![Recording HUD](docs/screenshots/hud.png) |
 
 ## Why Draft
 
-- **Local.** No cloud, no account, no upload.
-- **Fast.** The same `large-v3-turbo` model as Draft v3, kept warm on the GPU,
-  with no Python in the path. Benchmarked against v3.5 every release.
-- **Quiet by default.** One final GPU pass per dictation; live preview is an
-  explicit opt-in. The capture and inference split keeps preview work off the
-  final path, and the current build pastes the final transcript only.
-- **Accurate.** Whisper large-v3-turbo for the final transcript.
-- **Polished.** Native GPU-rendered UI, click-through HUD, tray app.
-- **Small.** No Python, no PyTorch; models download on demand.
-- **Everywhere.** Windows, macOS, and Linux desktop first; mobile shells over
-  the same core later.
-- **Yours.** MIT licensed, inspectable, no telemetry.
+- **Local by construction.** Whisper large-v3-turbo runs warm on the GPU. Audio
+  is never uploaded.
+- **Fast enough to feel instant.** On the reference machine, a 3-second clip
+  finishes in **239 ms p95**; an 11-second JFK recording in **264 ms p95**.
+- **One clear gesture.** Six shortcut choices, a real input meter, and no
+  modes to learn.
+- **Quiet by default.** One final GPU pass per dictation. Live preview is an
+  explicit opt-in because each preview is another full pass.
+- **A real Windows app.** A fixed, GPU-rendered surface, a click-through
+  recording HUD, a tray icon, and a per-user installer with no administrator
+  prompt.
+- **Honest.** The interface shows the real model state, the real input level,
+  and the real latency. Nothing is simulated.
 
-## Repository layout
+## What works today
 
-```text
-crates/draft-core/     platform-neutral text, settings, models, history
-crates/draft-engine/   GGUF inference through transcribe.cpp
-crates/draft-audio/    microphone capture and resampling
-crates/draft-hotkey/  the global dictation key
-crates/draft-paste/   clipboard insertion
-crates/draft-cli/      development CLI (draftctl)
-apps/desktop/          GPUI shell for Windows, macOS, and Linux
-docs/                  product spec, roadmap, performance, handoff
-scripts/               Windows toolchain and release helpers
-tools/inspect/         render inspection (text reports of the real window)
-```
+- Hold **Right Ctrl** (or Right Alt, F8, F9, Pause, or Scroll Lock), speak,
+  release, and the transcript is pasted at the cursor.
+- Press **Esc** while recording to cancel the take.
+- **Live preview** is available under Settings → Dictation. It is off by
+  default; the final transcript always comes from the complete clip.
+- The model loads once and stays warm. Vulkan is the shipping path, with a CPU
+  fallback when a GPU backend is unavailable.
+- A one-window interface: Dictate and Settings share the same 680×500 surface,
+  so nothing resizes or jumps. Light is the default theme; dark is a designed
+  second theme.
+- A click-through recording HUD with a real waveform, elapsed time, and an
+  honest Listening / Transcribing state.
+- A microphone picker with a four-second level check and automatic fallback to
+  the system default when a saved device disappears.
+- Tray actions for Show, Hide, Paste last, and Quit. Draft starts in the tray
+  at sign-in by default; the setting can be turned off.
+- Bounded local history: text and duration only, never audio, window titles, or
+  full URLs. A dedicated History pane is on the roadmap; the store and the
+  `draftctl history` commands exist today.
+- A resumable model installer that downloads the pinned F16 GGUF once, verifies
+  its SHA-256, and installs it atomically.
+- A per-user Windows installer with Start Menu and optional desktop shortcuts,
+  a clean uninstall, and no console window.
 
-`draft-core` owns behavior. Platform crates own windows, microphones, hotkeys,
-clipboards, trays, updaters, and permissions. No OS-specific type crosses into
-the core.
+## Privacy
 
-**Nothing in the shipped product needs PowerShell.** Draft is a single
-self-contained `draft.exe`; the installer is a single `Draft-Setup-<version>.exe`.
-The `.ps1` files are developer-side only: `scripts/` sets up a Windows
-toolchain and builds the installer, and `tools/inspect/` prints the rendered
-window as text so the interface can be checked without a screenshot. See
-[AGENTS.md](AGENTS.md) for the working rules.
+Draft is built to be private without asking you to trust a policy.
 
-## Stack
+- Audio is captured **only while the dictation key is held**.
+- Speech is transcribed on this device and discarded. Draft does not keep the
+  recording.
+- History contains **text and duration only**.
+- Settings, history, logs, and the model live under
+  `%LOCALAPPDATA%\Draft4`.
+- The **only network exception** is the one-time model download: 1.63 GB from
+  Hugging Face, verified against a pinned SHA-256. After that, dictation works
+  offline.
+- There is no telemetry, analytics, crash reporting, or update ping.
+- The GitHub and X actions on the Credits page open your browser only when you
+  choose them.
 
-| Layer | Choice |
-| --- | --- |
-| Desktop UI | GPUI (native, GPU-rendered) |
-| Mobile UI | SwiftUI and Jetpack Compose over the core (later) |
-| Audio | cpal (WASAPI, CoreAudio, ALSA/PipeWire) |
-| Inference | transcribe.cpp (GGUF Whisper large-v3-turbo; Vulkan, Metal, CUDA) |
-| Clipboard | arboard + native synthetic input |
-| Platform | windows-sys, objc2, X11/Wayland |
+## Performance
 
-See [docs/SPEC.md](docs/SPEC.md) for the product contract and architecture,
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the speed baseline and release
-gate, and [docs/ROADMAP.md](docs/ROADMAP.md) for the build order.
+Measured on the reference machine: Intel Core i7-13620H, NVIDIA GeForce RTX
+4060 Laptop 8 GB, Windows 11, Vulkan, F16 model, warm model, five measured
+runs per clip. Decode only, before clipboard paste.
 
-## Build
+| Audio | Draft p95 | Draft v3.5 p95 | Speedup |
+| --- | --- | --- | --- |
+| 3 s | **239 ms** | 996 ms | 4.17× |
+| 5 s | **234 ms** | 929 ms | 3.97× |
+| 15 s | **375 ms** | 1,139 ms | 3.04× |
+| 30 s | **543 ms** | 1,601 ms | 2.95× |
+| 60 s | **1,186 ms** | 3,036 ms | 2.56× |
+| JFK, 11 s | **264 ms** | — | — |
 
-Requirements: Rust stable, a native C/C++ toolchain, CMake, and a GPU SDK for the
-platform (Vulkan on Windows/Linux, Metal on macOS).
+These numbers are a baseline, not a promise for every GPU. The full method and
+the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
-Windows:
+## Install
+
+**Windows 10/11, x64.**
+
+1. Download `Draft-Setup-0.2.0.exe` from
+   [Releases](https://github.com/TirupMehta/draft-rs/releases/latest).
+2. Run the installer. It installs for the current user under
+   `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
+3. Install the speech model once. Release installers built with `-IncludeModel`
+   ship it; otherwise run `draftctl model install` to download the 1.63 GB F16
+   GGUF and verify its SHA-256 before use.
+4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
+
+The installer is **not code-signed yet**, so Windows SmartScreen may show a
+warning on first run. You can verify the download against the release notes, or
+build from source.
+
+## Build from source
+
+Requirements: Rust stable, Microsoft C++ Build Tools, CMake, and the Vulkan SDK.
+On Windows, the setup script installs the toolchain pieces it can and tells you
+what still needs a manual step.
 
 ```powershell
+git clone https://github.com/TirupMehta/draft-rs.git
+cd draft-rs
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 cargo run -p draft-desktop
 ```
 
-The app looks for
-`%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf`. Run
-`cargo run -p draft -- model install` to download and verify it, or pass
-`--model PATH` / set `DRAFT_MODEL_PATH` for a local GGUF. `draftctl model status`
-and `model verify` report what is installed. The development CLI is
-`cargo run -p draft -- --help` (binary `draftctl`). Run
-`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
-and `cargo test --workspace` before committing.
-
-### Windows installer
-
-Inno Setup 6 is the only extra tool (`winget install JRSoftware.InnoSetup`).
-Build the release binary first, then the wizard:
+The app looks for the F16 model at
+`%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf`. To download and
+verify it from the command line:
 
 ```powershell
-cargo build --release -p draft-desktop
+cargo run -p draft -- model install
+cargo run -p draft -- model status
+```
+
+`draftctl` also exposes `model list`, `model verify`, `model remove`,
+`transcribe`, `bench`, `mic`, `listen`, and `history`.
+
+Run the same gates as CI before sending a change:
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --workspace --release
+```
+
+### Installer
+
+Inno Setup 6 is the only extra tool:
+
+```powershell
+cargo build --workspace --release
 .\scripts\build-installer.ps1
 ```
 
-That writes `dist\Draft-Setup-<version>.exe`, a per-user install under
-`%LOCALAPPDATA%\Programs\Draft` with no administrator prompt. Add
-`-IncludeModel` to embed the installed F16 GGUF for a fully offline install; the
-installer then skips the copy when `%LOCALAPPDATA%\Draft4\models` already holds
-it. Uninstall removes the app and shortcuts but keeps settings, history, logs,
-and models.
+That writes `dist\Draft-Setup-<version>.exe`. Add `-IncludeModel` to embed the
+installed GGUF for an offline install. Uninstall removes the app and shortcuts
+but keeps settings, history, logs, and models under `%LOCALAPPDATA%\Draft4`.
+
+## Architecture
+
+```text
+crates/draft-core      settings, history, text cleanup, model catalog, paths
+crates/draft-engine    transcribe.cpp GGUF inference (Vulkan / CPU)
+crates/draft-audio     cpal capture, 16 kHz resample, live level
+crates/draft-hotkey    low-level Windows keyboard hook
+crates/draft-paste     clipboard insertion
+crates/draft-cli       the draftctl development binary
+apps/desktop           the GPUI shell (the product UI)
+assets                 app icon and bundled Inter / JetBrains Mono
+bench                  fixtures, baseline scripts, latency measurements
+docs                   specification, roadmap, performance, handoff
+packaging/windows      the Inno Setup installer
+scripts                toolchain and release helpers
+```
+
+`draft-core` owns behavior that is not platform-specific. Platform crates own
+windows, microphones, hotkeys, clipboards, trays, and permissions. No OS-specific
+type crosses into the core.
+
+## Status and limitations
+
+Draft 0.2.0 is an early Windows release.
+
+- Windows x64 is the only supported target today; macOS and Linux shells are
+  future work.
+- The installer is unsigned.
+- The History pane is not built; the bounded store and `draftctl history` are
+  available.
+- Real-speech WER parity with Draft v3.5 is still being measured. It is the
+  next release gate, and no accuracy claim is made ahead of it.
+- Updates are manual; there is no in-app updater.
+
+## Credits
+
+Draft is designed and built by [Tirup Mehta](https://github.com/TirupMehta).
+It is built on **GPUI** by Zed Industries (Apache-2.0), **transcribe.cpp**
+(MIT), **Whisper large-v3-turbo** by OpenAI in a GGUF build by handy-computer,
+**Inter** by Rasmus Andersson (OFL 1.1), and **JetBrains Mono** by JetBrains
+(OFL 1.1). The full list is in [CREDITS.md](CREDITS.md), and every Rust
+dependency is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The Credits section is also available in the app, under Settings → Credits,
+with links to GitHub and X and a button that opens the installed license files.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Draft is dual-licensed under either the [MIT License](LICENSE-MIT) or the
+[Apache License, Version 2.0](LICENSE-APACHE), at your option. The bundled
+typefaces are under the SIL Open Font License 1.1. The speech model is
+downloaded separately and is subject to its own terms. See [LICENSE](LICENSE),
+[NOTICE](NOTICE), and [CREDITS.md](CREDITS.md).

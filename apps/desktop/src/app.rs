@@ -55,21 +55,23 @@ const MICROPHONE_KEYS: [&str; 8] = [
     "chip:microphone:6",
     "chip:microphone:7",
 ];
-const SECTION_KEYS: [&str; 6] = [
+const SECTION_KEYS: [&str; 7] = [
     "section:0",
     "section:1",
     "section:2",
     "section:3",
     "section:4",
     "section:5",
+    "section:6",
 ];
-const SECTION_HOVER_KEYS: [&str; 6] = [
+const SECTION_HOVER_KEYS: [&str; 7] = [
     "section-hover:0",
     "section-hover:1",
     "section-hover:2",
     "section-hover:3",
     "section-hover:4",
     "section-hover:5",
+    "section-hover:6",
 ];
 const LEVEL_TEST_LENGTH: Duration = Duration::from_secs(4);
 /// The shortest gap between preview passes. A preview is display-only, so a
@@ -112,6 +114,7 @@ enum Section {
     Appearance,
     Privacy,
     Advanced,
+    Credits,
 }
 
 impl Section {
@@ -123,6 +126,7 @@ impl Section {
             Section::Appearance => "Appearance",
             Section::Privacy => "Privacy",
             Section::Advanced => "Advanced",
+            Section::Credits => "Credits",
         }
     }
 
@@ -134,10 +138,11 @@ impl Section {
             Section::Appearance => "How Draft looks on this screen.",
             Section::Privacy => "What stays on this device, and the one exception.",
             Section::Advanced => "Diagnostics, storage, and the command line.",
+            Section::Credits => "Draft and the open projects it is built on.",
         }
     }
 
-    fn all() -> [Section; 6] {
+    fn all() -> [Section; 7] {
         [
             Section::Dictation,
             Section::Audio,
@@ -145,6 +150,7 @@ impl Section {
             Section::Appearance,
             Section::Privacy,
             Section::Advanced,
+            Section::Credits,
         ]
     }
 
@@ -156,17 +162,46 @@ impl Section {
             Section::Appearance => 3,
             Section::Privacy => 4,
             Section::Advanced => 5,
+            Section::Credits => 6,
         }
     }
 }
 
-/// One window size for the whole app. The everyday view uses a 560 px column
-/// inside it, so switching views never resizes the drawing surface and there
-/// is no path to a fullscreen layout.
+/// One window size for the whole app, so switching views never resizes the
+/// drawing surface and there is no path to a fullscreen layout.
 pub(crate) const WINDOW_SIZE: (f32, f32) = (680.0, 500.0);
+
+const GITHUB_URL: &str = "https://github.com/TirupMehta";
+const X_URL: &str = "https://x.com/TirupMehta";
 
 pub(crate) fn initial_view_size() -> (f32, f32) {
     WINDOW_SIZE
+}
+
+/// Debug-only view selection for the inspection tooling. Release builds always
+/// open on the everyday view.
+fn initial_view() -> View {
+    #[cfg(debug_assertions)]
+    if std::env::var("DRAFT_VIEW").as_deref() == Ok("settings") {
+        return View::Settings;
+    }
+    View::Dictate
+}
+
+fn initial_section() -> Section {
+    #[cfg(debug_assertions)]
+    if let Ok(name) = std::env::var("DRAFT_SECTION") {
+        match name.as_str() {
+            "audio" => return Section::Audio,
+            "recognition" => return Section::Recognition,
+            "appearance" => return Section::Appearance,
+            "privacy" => return Section::Privacy,
+            "advanced" => return Section::Advanced,
+            "credits" => return Section::Credits,
+            _ => {}
+        }
+    }
+    Section::Dictation
 }
 
 struct LastResult {
@@ -329,8 +364,8 @@ impl DraftApp {
             }
         };
 
-        let view = View::Dictate;
-        let section = Section::Dictation;
+        let view = initial_view();
+        let section = initial_section();
         let animate = window_control::system_animations_enabled();
         let mut motion = Motion::new(
             if animate {
@@ -2142,6 +2177,7 @@ impl DraftApp {
             Section::Appearance => self.appearance_rows(palette, cx),
             Section::Privacy => self.privacy_rows(palette, cx),
             Section::Advanced => self.advanced_rows(palette, cx),
+            Section::Credits => self.credits_rows(palette, cx),
         };
         for (index, row) in rows.into_iter().enumerate() {
             if index > 0 {
@@ -2158,22 +2194,32 @@ impl DraftApp {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let app = cx.entity().downgrade();
-        let hotkeys = div().flex().flex_wrap().gap(px(theme::space::SM)).children(
-            HOTKEYS.iter().enumerate().filter_map(|(index, name)| {
-                let config = HotkeyConfig::named(name)?;
-                Some(
-                    self.chip(
-                        &app,
-                        palette,
-                        HOTKEY_KEYS[index],
-                        config.name,
-                        self.hotkey == config,
-                    )
-                    .id(("hotkey", index))
-                    .on_click(cx.listener(move |this, _, _, cx| this.choose_hotkey(config, cx))),
+        let mut hotkey_chips = Vec::new();
+        for (index, name) in HOTKEYS.iter().enumerate() {
+            let Some(config) = HotkeyConfig::named(name) else {
+                continue;
+            };
+            hotkey_chips.push(
+                self.chip(
+                    &app,
+                    palette,
+                    HOTKEY_KEYS[index],
+                    config.name,
+                    self.hotkey == config,
                 )
-            }),
-        );
+                .flex_1()
+                .id(("hotkey", index))
+                .on_click(cx.listener(move |this, _, _, cx| this.choose_hotkey(config, cx))),
+            );
+        }
+        let second_row = hotkey_chips.split_off(3.min(hotkey_chips.len()));
+        let hotkeys = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .w_full()
+            .child(div().flex().w_full().gap(px(6.0)).children(hotkey_chips))
+            .child(div().flex().w_full().gap(px(6.0)).children(second_row));
 
         let live_preview = self
             .toggle(&app, palette, "toggle:preview", "toggle-state:preview")
@@ -2586,6 +2632,158 @@ impl DraftApp {
             .into_any_element(),
         ]
     }
+
+    fn credits_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let version = env!("CARGO_PKG_VERSION");
+        let github = self
+            .text_button(&app, palette, "button:github", "GitHub")
+            .id("open-github")
+            .on_click(cx.listener(|_, _, _, cx| cx.open_url(GITHUB_URL)));
+        let x = self
+            .text_button(&app, palette, "button:x", "X")
+            .id("open-x")
+            .on_click(cx.listener(|_, _, _, cx| cx.open_url(X_URL)));
+        let about = div()
+            .flex()
+            .items_center()
+            .gap(px(theme::space::SM))
+            .w_full()
+            .py(px(theme::space::SM))
+            .child(brand_mark(palette, 32.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .font_family(theme::display_font())
+                            .text_size(px(theme::type_size::TITLE))
+                            .line_height(px(theme::line::TITLE))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(palette.text)
+                            .child(format!("Draft {version}")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::type_size::META))
+                            .line_height(px(theme::line::META))
+                            .text_color(palette.tertiary)
+                            .child("Designed and built by Tirup Mehta"),
+                    ),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.0))
+                    .child(github)
+                    .child(x),
+            );
+        let built_with = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .w_full()
+            .py(px(theme::space::SM))
+            .child(
+                div()
+                    .text_size(px(theme::type_size::META))
+                    .line_height(px(theme::line::META))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(palette.tertiary)
+                    .child("BUILT WITH"),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .p(px(theme::space::SM))
+                    .rounded_lg()
+                    .bg(palette.surface)
+                    .child(credit_line(palette, "Interface", "GPUI · Zed Industries").py(px(5.0)))
+                    .child(div().h(px(1.0)).bg(palette.hairline))
+                    .child(credit_line(palette, "Inference", "transcribe.cpp").py(px(5.0)))
+                    .child(div().h(px(1.0)).bg(palette.hairline))
+                    .child(credit_line(palette, "Type", "Inter · JetBrains Mono").py(px(5.0)))
+                    .child(div().h(px(1.0)).bg(palette.hairline))
+                    .child(credit_line(palette, "Model", "Whisper large-v3-turbo").py(px(5.0))),
+            );
+        let licenses = self
+            .text_button(&app, palette, "button:licenses", "Open licenses")
+            .id("open-licenses")
+            .on_click(cx.listener(|this, _, _, cx| this.open_licenses(cx)));
+        let license = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .w_full()
+            .py(px(theme::space::SM))
+            .child(
+                div()
+                    .text_size(px(theme::type_size::META))
+                    .line_height(px(theme::line::META))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(palette.tertiary)
+                    .child("LICENSE"),
+            )
+            .child(
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .line_height(px(18.0))
+                    .text_color(palette.secondary)
+                    .child("Draft is dual-licensed under MIT or Apache-2.0. The bundled fonts are under the SIL Open Font License. The model is downloaded separately and is subject to its own terms."),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .w_full()
+                    .child(
+                        div()
+                            .text_size(px(theme::type_size::META))
+                            .line_height(px(theme::line::META))
+                            .text_color(palette.tertiary)
+                            .child("MIT OR APACHE-2.0"),
+                    )
+                    .child(licenses),
+            );
+
+        vec![
+            about.into_any_element(),
+            built_with.into_any_element(),
+            license.into_any_element(),
+        ]
+    }
+
+    fn open_licenses(&mut self, cx: &mut Context<Self>) {
+        let Some(dir) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|parent| parent.join("licenses")))
+        else {
+            self.notice = Some("The full license texts are in the repository.".to_owned());
+            cx.notify();
+            return;
+        };
+        if dir.is_dir() {
+            open_in_file_manager(&dir);
+            self.notice = Some("Opened the license folder.".to_owned());
+        } else {
+            self.notice = Some(
+                "The full license texts ship with the installer and live in the repository."
+                    .to_owned(),
+            );
+        }
+        cx.notify();
+    }
 }
 
 impl Render for DraftApp {
@@ -2605,6 +2803,30 @@ impl Render for DraftApp {
             View::Settings => root.child(self.settings_view(&palette, cx)),
         }
     }
+}
+
+fn credit_line(palette: &theme::Palette, label: &str, value: &str) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(theme::space::LG))
+        .w_full()
+        .child(
+            div()
+                .text_size(px(theme::type_size::META))
+                .line_height(px(theme::line::META))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(palette.tertiary)
+                .child(label.to_owned()),
+        )
+        .child(
+            div()
+                .text_size(px(theme::type_size::SMALL))
+                .line_height(px(theme::line::SMALL))
+                .text_color(palette.secondary)
+                .child(value.to_owned()),
+        )
 }
 
 fn headline(text: &str, color: Rgba) -> Div {
