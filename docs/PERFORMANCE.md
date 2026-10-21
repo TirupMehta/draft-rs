@@ -48,29 +48,35 @@ fixed overhead while the 60-second clip runs at 20.7x real time. The first
 speed win is removing that fixed cost, not changing the model. The measured
 numbers live in [`../bench/baseline.json`](../bench/baseline.json).
 
-## Release result (2026-10-20)
+## Release result (2026-10-21, F16)
 
-The first authoritative Rust result uses the release profile
-(`cargo build --release`), `whisper-large-v3-turbo-Q8_0.gguf`, the Vulkan
-backend, one warm-up plus ten measured runs per clip. Model load was 2.7 s and
-the warm-up pass was 268-337 ms. These are decode times, before clipboard
-paste. The raw report is [`../bench/results/rust-vulkan-release.json`](../bench/results/rust-vulkan-release.json).
+The shipping artifact is `whisper-large-v3-turbo-F16.gguf`: the same model and
+the same float16 precision Draft v3.5 loads. This is the release profile
+(`cargo build --release`), the Vulkan backend, two warm-up plus five measured
+runs per clip. Model load was 2.7 s and the second warm-up pass was 358 ms.
+These are decode times, before clipboard paste. The raw report is
+[`../bench/results/rust-vulkan-release-f16.json`](../bench/results/rust-vulkan-release-f16.json).
 
 | Clip | v3.5 p50 | v3.5 p95 | Draft p50 | Draft p95 | Speedup p50 | Speedup p95 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 3 s | 943 ms | 996 ms | **229 ms** | **246 ms** | **4.12x** | **4.05x** |
-| 5 s | 880 ms | 929 ms | **239 ms** | **272 ms** | **3.68x** | **3.42x** |
-| 15 s | 1,077 ms | 1,139 ms | **331 ms** | **348 ms** | **3.26x** | **3.28x** |
-| 30 s | 1,473 ms | 1,601 ms | **437 ms** | **477 ms** | **3.37x** | **3.36x** |
-| 60 s | 2,900 ms | 3,036 ms | **951 ms** | **1,043 ms** | **3.05x** | **2.91x** |
+| 3 s | 943 ms | 996 ms | **231 ms** | **239 ms** | **4.08x** | **4.17x** |
+| 5 s | 880 ms | 929 ms | **233 ms** | **234 ms** | **3.78x** | **3.97x** |
+| 15 s | 1,077 ms | 1,139 ms | **354 ms** | **375 ms** | **3.04x** | **3.04x** |
+| 30 s | 1,473 ms | 1,601 ms | **538 ms** | **543 ms** | **2.74x** | **2.95x** |
+| 60 s | 2,900 ms | 3,036 ms | **1,166 ms** | **1,186 ms** | **2.49x** | **2.56x** |
 
 The release build clears the 1.10x p95 ceiling and the 0.80x stretch target on
 every clip by a wide margin. The earlier debug build was about 1.5-2x slower;
 those numbers are not authoritative. The 60-second debug outlier (4.1 s p95)
-did not reproduce in release, where p95 is 1.04 s.
+did not reproduce in release, where F16 p95 is 1.19 s.
 
-A real 11-second JFK recording decoded exactly at 311 ms p50 / 315 ms p95
-(35x real time). That is a sanity check, not a WER set.
+A real 11-second JFK recording decoded exactly at 250 ms p50 / 264 ms p95
+(44x real time). That is a sanity check, not a WER set.
+
+The earlier Q8_0 release run is kept for comparison: p95 was 246, 272, 348, 477,
+and 1,043 ms on the 3-60 second clips. It is up to 14% faster on the 60-second
+clip, but 8-bit weights are not the precision v3.5 ships, so it is a catalog
+alternative rather than the default.
 
 What the numbers mean:
 
@@ -78,18 +84,19 @@ What the numbers mean:
   ~170-200 ms Whisper encoder pass, not setup.
 - Decode is only ~40-85 ms for a 3-11 second clip; host BLAS would not move the
   number, so Windows does not need OpenBLAS.
-- Q8_0 was selected over F16: the publisher's evaluation reports 2.01% WER for
-  both, while Q8_0 is 886 MB versus 1.63 GB. F16 remains the fallback if real
-  speech shows a Q8_0 regression.
+- F16 is the distribution artifact because it matches v3.5's float16 weights
+  exactly. Q8_0 (886 MB) remains in the catalog for constrained machines but is
+  never selected silently.
 - The first Vulkan run is much slower because it compiles compute pipelines.
   Warm-up is mandatory: the app prewarms the backend and model at launch,
   before the first dictation.
 - `transcribe.cpp` Whisper currently uses greedy decoding, while v3.5 used
   beam 5 plus VAD. The latency win is real, but it is not yet an accuracy win.
   WER on real recordings must be within 0.5 percentage points of v3.5 before
-  this engine ships. If it fails, test F16, then a beam/best-of path, then the
-  CTranslate2 fallback. Do not hide an accuracy regression behind a speed
-  table.
+  this engine ships. With the F16 artifact the quantization variable is gone,
+  so a regression would point at decoding: the next step is a beam/best-of
+  path, then the CTranslate2 fallback. Do not hide an accuracy regression behind
+  a speed table.
 
 ## Contract
 
@@ -120,10 +127,12 @@ substitute for the gate:
 
 ## Model policy
 
-- The default final model is **`whisper-large-v3-turbo`**, the same family as
-  v3.5. It is not silently replaced by a smaller model to hit a budget.
-- Q8_0 is the current distribution artifact. F16 is the fallback if real-speech
-  WER shows that quantization costs more than 0.5 percentage points.
+- The default final model is **`whisper-large-v3-turbo` at F16**, the same
+  family and the same float16 precision as v3.5. It is not silently replaced by
+  a smaller or quantized model to hit a budget.
+- Q8_0 is a catalog alternative for constrained machines (886 MB, up to 14%
+  faster on the 60-second clip). It is never the default because 8-bit weights
+  are not the precision v3.5 ships.
 - Parakeet and Moonshine may power live preview. They replace the final
   Whisper pass only after matching its WER on our fixtures and beating its p95.
 - Multilingual behavior is part of correctness; an English-only speed win is
@@ -133,7 +142,7 @@ substitute for the gate:
 
 | Candidate | Why | Status |
 | --- | --- | --- |
-| `transcribe.cpp` Vulkan | Windows GPU path with no CUDA toolkit for users | **Selected for Windows**: release build is 2.9-4.1x faster than v3.5 |
+| `transcribe.cpp` Vulkan | Windows GPU path with no CUDA toolkit for users | **Selected for Windows**: release build is 2.5-4.2x faster than v3.5 |
 | `transcribe.cpp` CUDA | Native NVIDIA path if the Windows build is sound | Not pursued: upstream documents CUDA as Linux-only |
 | CTranslate2 C++ shim | Exact v3.5 engine; highest chance of parity | Fallback only if Vulkan WER fails |
 | whisper.cpp CUDA | Mature Windows CUDA path | Not needed: Vulkan already beats v3.5 |

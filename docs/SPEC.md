@@ -191,8 +191,8 @@ apps/mobile/...                     SwiftUI/Compose shells over the C ABI (M7)
 | Mobile UI | SwiftUI + Jetpack Compose | Native keyboards and platform background rules; shares the Rust core |
 | Audio | `cpal` | WASAPI, CoreAudio, ALSA/PipeWire capture and device enumeration |
 | Resampling | `rubato` | High-quality 16 kHz conversion |
-| Inference | `transcribe-cpp` 0.4 | GGUF Whisper large-v3-turbo; Vulkan on Windows (2.9-4.1x faster than v3.5 on the release clips); Metal/CUDA wiring pending, and CUDA is Linux-only upstream |
-| Default model | `whisper-large-v3-turbo-Q8_0.gguf` | Same family as Draft v3.5; 886 MB; F16 is the fallback if WER regresses |
+| Inference | `transcribe-cpp` 0.4 | GGUF Whisper large-v3-turbo; Vulkan on Windows (2.5-4.2x faster than v3.5 on the release clips); Metal/CUDA wiring pending, and CUDA is Linux-only upstream |
+| Default model | `whisper-large-v3-turbo-F16.gguf` | Same model and float16 precision as Draft v3.5; 1.63 GB; Q8_0 is a smaller catalog alternative |
 | Clipboard | `arboard` + native synthetic input | Clipboard preservation plus the platform paste chord |
 | Tray | `tray-icon` 0.24 | Native notification-area integration; macOS/Linux menu-bar adapters later |
 | Platform | `windows-sys`; `objc2`, `x11rb`/Wayland later | Hooks, UI Automation, event taps, audio sessions, registry |

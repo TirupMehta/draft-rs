@@ -37,11 +37,26 @@ pub struct ModelSpec {
     pub sha256: &'static str,
 }
 
-/// Whisper large-v3-turbo, the same model family as Draft v3.5.
+/// Whisper large-v3-turbo at float16, the same model and precision as Draft
+/// v3.5 (`large-v3-turbo` with `compute_type="float16"` on CUDA).
 ///
-/// The checksum was computed from the artifact used for the released latency
-/// benchmark, and the URL was confirmed to serve those identical bytes.
-pub const WHISPER_LARGE_V3_TURBO: ModelSpec = ModelSpec {
+/// The checksum was computed from the downloaded artifact, so the shipped file
+/// is provably the one that was measured.
+pub const WHISPER_LARGE_V3_TURBO_F16: ModelSpec = ModelSpec {
+    id: "whisper-large-v3-turbo-f16",
+    name: "Whisper Large v3 Turbo",
+    quantization: "F16",
+    file_name: "whisper-large-v3-turbo-F16.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-F16.gguf",
+    size: 1_625_935_488,
+    sha256: "c8506ddfa3d4eb9279170d722a75422db00dbdbd7618531bbb81926e0598eb8f",
+};
+
+/// The same weights at 8-bit, about half the size and a little faster.
+///
+/// Kept as an explicit catalog entry for constrained machines. It is never the
+/// default because 8-bit weights are not the precision v3.5 ships.
+pub const WHISPER_LARGE_V3_TURBO_Q8_0: ModelSpec = ModelSpec {
     id: "whisper-large-v3-turbo-q8_0",
     name: "Whisper Large v3 Turbo",
     quantization: "Q8_0",
@@ -52,10 +67,10 @@ pub const WHISPER_LARGE_V3_TURBO: ModelSpec = ModelSpec {
 };
 
 /// The artifact a fresh install expects.
-pub const DEFAULT_MODEL: ModelSpec = WHISPER_LARGE_V3_TURBO;
+pub const DEFAULT_MODEL: ModelSpec = WHISPER_LARGE_V3_TURBO_F16;
 
 /// Everything a fresh install can fetch.
-pub const CATALOG: &[ModelSpec] = &[WHISPER_LARGE_V3_TURBO];
+pub const CATALOG: &[ModelSpec] = &[WHISPER_LARGE_V3_TURBO_F16, WHISPER_LARGE_V3_TURBO_Q8_0];
 
 /// Look up a catalog entry by id.
 pub fn find(id: &str) -> Option<&'static ModelSpec> {

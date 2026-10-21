@@ -254,11 +254,17 @@ fn parse_options() -> Options {
     }
 
     if !explicit_model && !model.exists() && cfg!(all(debug_assertions, target_os = "windows")) {
-        // Development convenience: the benchmark model lives outside the app
+        // Development convenience: benchmark artifacts live outside the app
         // data directory. Release builds never look here.
-        let dev = PathBuf::from(r"C:\all\models\whisper-large-v3-turbo-Q8_0.gguf");
-        if dev.exists() {
-            model = dev;
+        for candidate in [
+            r"C:\all\models\whisper-large-v3-turbo-F16.gguf",
+            r"C:\all\models\whisper-large-v3-turbo-Q8_0.gguf",
+        ] {
+            let dev = PathBuf::from(candidate);
+            if dev.exists() {
+                model = dev;
+                break;
+            }
         }
     }
 
@@ -297,7 +303,7 @@ Usage:
 Settings live at %LOCALAPPDATA%\\Draft4\\settings.json and change from the
 Preferences card. CLI flags override them for this launch. Set
 DRAFT_SETTINGS_PATH to use a different settings file. The default model path is
-%LOCALAPPDATA%\\Draft4\\models\\whisper-large-v3-turbo-Q8_0.gguf; run
+%LOCALAPPDATA%\\Draft4\\models\\whisper-large-v3-turbo-F16.gguf; run
 `draftctl model install` to download and verify it, or set DRAFT_MODEL_PATH or
 pass --model. Hotkeys: right-ctrl (default),
 right-alt, f8, f9, pause, scroll-lock. Hold the hotkey to dictate; release to

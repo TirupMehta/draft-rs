@@ -99,7 +99,7 @@ cargo run -p draft-desktop
 ```
 
 The app looks for
-`%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-Q8_0.gguf`. Run
+`%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf`. Run
 `cargo run -p draft -- model install` to download and verify it, or pass
 `--model PATH` / set `DRAFT_MODEL_PATH` for a local GGUF. `draftctl model status`
 and `model verify` report what is installed. The development CLI is

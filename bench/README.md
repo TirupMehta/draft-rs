@@ -46,7 +46,7 @@ Invoke-WebRequest `
 
 ```powershell
 cargo run -p draft -- bench `
-  --model C:\all\models\whisper-large-v3-turbo-Q8_0.gguf `
+  --model "$env:LOCALAPPDATA\Draft4\models\whisper-large-v3-turbo-F16.gguf" `
   --backend vulkan `
   --fixtures bench/fixtures `
   --warmup 2 --runs 10 `
@@ -65,7 +65,7 @@ The Windows engine is `transcribe.cpp` with Vulkan. Build `transcribe-cli` and
 
 ```powershell
 C:\bv\bin\Release\transcribe-bench.exe `
-  --model C:\all\models\whisper-large-v3-turbo-Q8_0.gguf `
+  --model "$env:LOCALAPPDATA\Draft4\models\whisper-large-v3-turbo-F16.gguf" `
   --sample .\bench\fixtures\tts-5s.wav `
   --backend vulkan --device 0 --warmup 3 --iters 5 `
   --quiet --json-out .\bench\results\vulkan-tts-5s.wav.json
@@ -75,7 +75,8 @@ python .\bench\compare_bakeoff.py --results-dir .\bench\results --prefix vulkan-
 
 Always warm up: the first Vulkan run compiles pipelines and is not a real
 latency number. Results are in [`docs/PERFORMANCE.md`](../docs/PERFORMANCE.md);
-the measured Vulkan path is about 2× faster than v3.5 on short and medium clips.
+the measured Vulkan path is 2.5-4.2x faster than v3.5 across the 3-60 second
+clips.
 
 ## Baseline schema
 

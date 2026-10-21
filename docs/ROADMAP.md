@@ -37,11 +37,11 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [x] Capture the Draft v3.5 speed baseline on the reference RTX 4060, using
       the same clips and the same `large-v3-turbo` model.
 - [x] Engine bake-off: `transcribe.cpp` Vulkan selected. Warm `large-v3-turbo`
-      Q8_0 is 2.9-4.1x faster than v3.5; CUDA was not pursued, and the
+      F16 is 2.5-4.2x faster than v3.5; CUDA was not pursued, and the
       CTranslate2 shim stays a fallback only if the WER gate fails.
 - [x] `bench/baseline.json` records the v3.5 baseline.
-- [x] `draftctl bench --json` and the 10% p95 gate. Release p95 is 246-1,043 ms
-      on the 3-60 second clips, clearing the 1.10x ceiling.
+- [x] `draftctl bench --json` and the 10% p95 gate. Release F16 p95 is
+      239-1,186 ms on the 3-60 second clips, clearing the 1.10x ceiling.
 - [x] `cpal` capture at the device rate, downmix to mono, resample to 16 kHz,
       and persist the selected device.
 - [x] Shortcut state machine: hold, 300 ms short-tap discard, and Escape cancel.
@@ -60,15 +60,17 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 ## M2 — Models and streaming
 
 - [ ] Model catalog with Parakeet Unified English and Whisper large-v3-turbo.
-- [x] Pinned Whisper Q8_0 artifact (length and SHA-256), resumable download with
-      progress, verification, atomic install, status, verify, and remove.
+- [x] Pinned Whisper artifacts (length and SHA-256), resumable download with
+      progress, verification, atomic install, status, verify, and remove. F16 is
+      the default; Q8_0 is the smaller catalog entry.
 - [ ] Parakeet Unified English entry in the same catalog.
 - [ ] Streaming session with partial text; final whole-clip fallback.
 - [x] HUD: click-through, always-on-top listening and transcribing states.
 - [ ] HUD waveform and partial text.
 - [ ] Two-pass mode: Parakeet preview, Whisper final.
-- [ ] Benchmark F16 vs Q8_0 on real speech; Q8_0 is selected from published WER,
-      with F16 as the fallback.
+- [x] F16 is the shipping artifact for exact float16 parity with v3.5; Q8_0
+      stays a smaller catalog option. Real-speech WER within 0.5 pp of v3.5 is
+      still unmeasured.
 - [ ] Prove the preview model does not regress final p95 by more than 2%.
 
 ## M3 — Settings, history, corrections

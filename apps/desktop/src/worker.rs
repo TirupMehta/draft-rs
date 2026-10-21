@@ -59,7 +59,7 @@ fn run(
 ) {
     if !model.exists() {
         let _ = events.send(Event::Failed(format!(
-            "Model not found at {}. Put the GGUF there or pass --model.",
+            "Model not found at {}. Download it with `draftctl model install`, or pass --model.",
             model.display()
         )));
         return;
