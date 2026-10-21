@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 
 use thiserror::Error;
 use tracing::{debug, info, warn};
-use transcribe_cpp::{Backend, Model, ModelOptions, RunOptions, Session};
+use transcribe_cpp::{
+    Backend, Model, ModelOptions, RunExtension, RunOptions, Session, WhisperRunOptions,
+};
 
 /// Everything that can stop the engine from producing text.
 #[derive(Debug, Error)]
@@ -75,6 +77,10 @@ pub struct TranscriptionOptions {
     pub vocabulary: Vec<String>,
     /// Free-form context that helps names and punctuation.
     pub prompt: Option<String>,
+    /// Use the cheapest decode path for a display-only partial. This disables
+    /// temperature fallback and previous-token conditioning, so a preview is
+    /// one pass instead of a possible retry loop. Final text never uses it.
+    pub low_latency: bool,
 }
 
 /// Stage timings reported by the native engine.
@@ -112,6 +118,7 @@ pub struct Engine {
     _model: Model,
     session: Session,
     model_path: PathBuf,
+    arch: String,
     backend: String,
     device: String,
     load_time: Duration,
@@ -129,6 +136,7 @@ impl Engine {
         let model = Model::load_with(&config.model_path, &options)?;
         let load_time = started.elapsed();
         let backend = model.backend();
+        let arch = model.arch();
         let device = model
             .device()
             .map(|device| device.name)
@@ -137,6 +145,7 @@ impl Engine {
 
         info!(
             model = %config.model_path.display(),
+            arch = %arch,
             backend = %backend,
             device = %device,
             load_ms = load_time.as_secs_f64() * 1000.0,
@@ -147,6 +156,7 @@ impl Engine {
             _model: model,
             session,
             model_path: config.model_path.clone(),
+            arch,
             backend,
             device,
             load_time,
@@ -186,10 +196,23 @@ impl Engine {
         }
 
         let started = Instant::now();
+        let family = if options.low_latency && self.arch == "whisper" {
+            Some(RunExtension::Whisper(WhisperRunOptions {
+                condition_on_prev_tokens: Some(false),
+                temperature: Some(0.0),
+                // Zero disables whisper.cpp's temperature fallback loop.
+                temperature_inc: Some(0.0),
+                max_prev_context_tokens: Some(0),
+                ..WhisperRunOptions::default()
+            }))
+        } else {
+            None
+        };
         let native = RunOptions {
             language: options.language.clone(),
             vocabulary: options.vocabulary.clone(),
             prompt: options.prompt.clone(),
+            family,
             ..RunOptions::default()
         };
         let transcript = self.session.run(pcm, &native)?;

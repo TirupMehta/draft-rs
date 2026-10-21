@@ -103,7 +103,7 @@ What the numbers mean:
 | Stage | Budget | Notes |
 | --- | --- | --- |
 | Keydown -> capture active | <= 30 ms p95 warm, <= 300 ms p95 cold | Cold is release-while-idle or a sleeping device |
-| Speech onset -> first partial | <= 300 ms p95, stretch 150 ms | Preview model only; never blocks the final pass |
+| Speech onset -> first partial | <= 300 ms p95, stretch 150 ms | Only when live preview is explicitly enabled; never blocks the final pass |
 | Keyup -> final text ready | <= v3.5 p50 **and** p95 on the same clip | Stretch: 20% faster than v3.5 |
 | Final text ready -> paste issued | <= 40 ms p95 | Clipboard + `SendInput` |
 | Keyup -> paste complete | final + <= 80 ms p95 | End-to-end number users feel |
@@ -124,6 +124,42 @@ substitute for the gate:
 | 15 s | 500 ms | 900 ms |
 | 30 s | 800 ms | 1.3 s |
 | 60 s | 1.8 s | 2.5 s |
+
+## Thermal and fan policy (2026-10-21)
+
+The RTX 4060 Laptop is fast enough that the decoder is no longer the user's
+main complaint; heat is. Measured on the reference machine with the F16 model:
+
+| State | GPU power | Clock | Temperature |
+| --- | --- | --- | --- |
+| Idle, model loaded | ~4.7 W | 210 MHz | 54-55 C |
+| Continuous 15 s inference | 66-84 W | 2,595 MHz | 71 C within ~4 s |
+| One 15 s pass, peak | 55-69 W | 2,595 MHz | ~65 C |
+| Boost tail after one pass | ~25 W | 2,610 MHz | ~1.5 s, then clocks ramp down over ~2-4 s |
+
+The important detail is the tail: after a pass the GPU stays boosted for
+roughly two seconds before it drops to idle clocks. A preview every 1-3 s
+therefore never lets the GPU cool. A 1.2 s preview cadence averaged ~20 W and
+stayed at 59-62 C; a 3 s cadence averaged ~23 W and peaked at 66 C because each
+pass re-boosted from a lower clock. Both keep the fans engaged.
+
+Policy:
+
+- **Live preview is off by default.** It is an explicit setting with a GPU-cost
+  warning. The HUD still shows the listening level; the final transcript still
+  uses the complete clip and the same F16 model.
+- When enabled, a preview's cooldown starts after the pass **finishes**, not
+  when it is queued. The gap is three times the measured pass time, clamped to
+  1.2-3.0 s.
+- The event loop still polls at 60 Hz so a hotkey release is not delayed, but
+  the visible window repaints at most 30 times a second, the HUD at 15, and a
+  hidden main window is not repainted for level changes. This removes continuous
+  D3D work while dictating into another application.
+- Preview passes use `temperature_inc = 0` and no previous-token conditioning:
+  one display-only pass, never a fallback loop. Final passes keep the normal
+  decode settings.
+- Do not describe previews as free. Any future small-model preview must prove
+  lower GPU power, not just lower latency, before it becomes a default.
 
 ## Model policy
 
@@ -158,8 +194,9 @@ real recordings is still the release gate.
 - No GIL, Tk event loop, or Python-side decode lock.
 - The final decode starts at keyup, before any overlay, history, or clipboard
   work finishes.
-- Live preview runs on a separate small model and never queues ahead of the
-  final pass.
+- Live preview is opt-in and uses the same F16 model with a low-latency decode;
+  it queues on the one engine thread and never changes final text. It is off by
+  default because repeated passes keep the laptop GPU hot.
 - One resample to 16 kHz, one clipboard write, direct `SendInput`.
 - No VAD pass on short clips; the capture energy gate decides instead.
 - GPU shaders are warmed at startup, not on the first dictation.

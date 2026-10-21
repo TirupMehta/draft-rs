@@ -99,7 +99,7 @@ impl Render for DraftHud {
             .map(|text| (clip_tail(text, 100), theme::text(), 13.0))
             .unwrap_or_else(|| {
                 let text = if listening {
-                    "Speak now — words appear as you talk."
+                    "Speak now."
                 } else {
                     "Finishing your words…"
                 };

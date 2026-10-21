@@ -31,6 +31,17 @@ const HOTKEYS: [&str; 6] = [
     "scroll-lock",
 ];
 const LEVEL_TEST_LENGTH: Duration = Duration::from_secs(4);
+/// The shortest gap between preview passes. A preview is display-only, so a
+/// little less freshness is a good trade for a much lower, steadier GPU load.
+const PREVIEW_BASE_DELAY: Duration = Duration::from_millis(1_200);
+const PREVIEW_MAX_DELAY: Duration = Duration::from_millis(3_000);
+/// The HUD's level meter is decorative, not an input device. Fifteen frames a
+/// second is plenty for a small capsule and keeps the GPU from redrawing it at
+/// the full event-poll rate.
+const HUD_INTERVAL: Duration = Duration::from_millis(66);
+/// Cap repaints of the visible main window while its level meter is moving.
+/// The event poll stays faster than this so a hotkey release is not delayed.
+const UI_INTERVAL: Duration = Duration::from_millis(33);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -76,6 +87,10 @@ pub struct DraftApp {
     partial: Option<String>,
     preview_pending: bool,
     preview_at: Instant,
+    /// Wait at least this long after a finished preview before starting the
+    /// next one. It grows with the measured preview cost, which keeps the GPU
+    /// duty cycle bounded instead of running previews back-to-back.
+    preview_delay: Duration,
     serial: u64,
     last: Option<LastResult>,
     error: Option<String>,
@@ -86,6 +101,8 @@ pub struct DraftApp {
     history: Option<draft_core::history::History>,
     hud: Entity<DraftHud>,
     hud_snapshot: Option<HudSnapshot>,
+    hud_at: Instant,
+    ui_at: Instant,
     hud_visible: bool,
     hud_hwnd: Option<isize>,
     main_window: Option<AnyWindowHandle>,
@@ -189,6 +206,7 @@ impl DraftApp {
             partial: None,
             preview_pending: false,
             preview_at: Instant::now(),
+            preview_delay: PREVIEW_BASE_DELAY,
             serial: 0,
             last: None,
             error: initial_error,
@@ -199,6 +217,8 @@ impl DraftApp {
             history,
             hud,
             hud_snapshot: None,
+            hud_at: Instant::now(),
+            ui_at: Instant::now(),
             hud_visible: false,
             hud_hwnd: None,
             main_window: None,
@@ -286,14 +306,25 @@ impl DraftApp {
             self.notice = Some("Microphone check finished.".to_owned());
             changed = true;
         }
-        if self.recorder.is_some() || self.level_test.is_some() {
-            // Keep the level meter moving while audio is open.
+        // A phase, transcript, or notice change should reach the HUD at once.
+        // Level-only updates are throttled separately below.
+        let state_changed = changed;
+        let ui_due = state_changed || self.ui_at.elapsed() >= UI_INTERVAL;
+        let main_visible = self.main_hwnd.is_none_or(window_control::is_visible);
+        if (self.recorder.is_some() || self.level_test.is_some()) && main_visible {
+            // Keep the visible window's level meter moving while audio is
+            // open. When Draft is hidden in the tray, the HUD is the only
+            // thing that needs a repaint.
             changed = true;
         }
         self.maybe_preview();
-        self.sync_hud(cx);
-        if changed {
+        if state_changed || self.hud_at.elapsed() >= HUD_INTERVAL {
+            self.sync_hud(cx);
+            self.hud_at = Instant::now();
+        }
+        if changed && ui_due {
             cx.notify();
+            self.ui_at = Instant::now();
         }
     }
 
@@ -479,6 +510,26 @@ impl DraftApp {
         }
     }
 
+    fn set_live_preview(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.live_preview == enabled {
+            return;
+        }
+        self.settings.live_preview = enabled;
+        if enabled {
+            // Start the next preview clock fresh when the user opts in.
+            self.preview_at = Instant::now();
+            self.preview_delay = PREVIEW_BASE_DELAY;
+            self.notice = Some("Live preview on. This uses the GPU while you speak.".to_owned());
+        } else {
+            // Drop any partial already on screen; a preview still in flight is
+            // ignored when it arrives.
+            self.partial = None;
+            self.notice = Some("Live preview off. Dictation uses one final GPU pass.".to_owned());
+        }
+        self.save_settings();
+        cx.notify();
+    }
+
     fn use_default_model(&mut self, cx: &mut Context<Self>) {
         if self.settings.model.is_none() {
             return;
@@ -495,7 +546,7 @@ impl DraftApp {
             self.notice = Some("No completed dictation yet.".to_owned());
             return;
         };
-        let text = last.text.clone();
+        let text = draft_core::text::for_paste(&last.text);
         self.notice = Some("Pasting the last dictation.".to_owned());
         std::thread::spawn(move || {
             if let Err(error) = draft_paste::paste_text(&text) {
@@ -534,10 +585,10 @@ impl DraftApp {
     /// the HUD can show what was heard. The final pass still uses the complete
     /// clip, and previews never paste.
     fn maybe_preview(&mut self) {
-        if self.phase != Phase::Listening || self.preview_pending {
+        if !self.settings.live_preview || self.phase != Phase::Listening || self.preview_pending {
             return;
         }
-        if self.preview_at.elapsed() < Duration::from_millis(650) {
+        if self.preview_at.elapsed() < self.preview_delay {
             return;
         }
         let Some(recorder) = self.recorder.as_ref() else {
@@ -594,12 +645,28 @@ impl DraftApp {
                 self.phase = Phase::Error;
                 self.error = Some(error);
             }
-            worker::Event::Partial { text, serial } => {
+            worker::Event::Partial {
+                text,
+                serial,
+                elapsed,
+            } => {
                 if serial != self.serial {
+                    self.preview_pending = false;
+                    self.preview_at = Instant::now();
                     return;
                 }
                 self.preview_pending = false;
-                if self.phase == Phase::Listening && !text.trim().is_empty() {
+                self.preview_at = Instant::now();
+                // Hold the next preview off for a few times the cost of this
+                // one. The gap has a floor so previews still feel live, and a
+                // ceiling so a slow pass does not stall the HUD forever.
+                self.preview_delay = elapsed
+                    .saturating_mul(3)
+                    .clamp(PREVIEW_BASE_DELAY, PREVIEW_MAX_DELAY);
+                if self.settings.live_preview
+                    && self.phase == Phase::Listening
+                    && !text.trim().is_empty()
+                {
                     self.partial = Some(text);
                 }
             }
@@ -611,6 +678,12 @@ impl DraftApp {
                 paste_error,
             } => {
                 self.pending_jobs = self.pending_jobs.saturating_sub(1);
+                tracing::info!(
+                    audio_s,
+                    engine_ms = elapsed.as_millis(),
+                    chars = text.len(),
+                    "dictation transcribed"
+                );
                 if let Some(history) = self.history.as_mut() {
                     let duration_ms = (audio_s * 1000.0).round() as u64;
                     if let Err(error) =
@@ -670,6 +743,7 @@ impl DraftApp {
         self.partial = None;
         self.preview_pending = false;
         self.preview_at = Instant::now();
+        self.preview_delay = PREVIEW_BASE_DELAY;
         self.serial = self.serial.wrapping_add(1);
         // A level check holds the microphone open. A real dictation takes over
         // that stream instead of waiting for the check to expire.
@@ -958,7 +1032,10 @@ impl Render for DraftApp {
             );
 
         let hero_detail = match self.phase {
-            Phase::Listening => "Speak normally. Words appear here before you release.".to_owned(),
+            Phase::Listening if self.settings.live_preview => {
+                "Speak normally. Words appear here before you release.".to_owned()
+            }
+            Phase::Listening => "Speak normally. Release to transcribe.".to_owned(),
             Phase::Transcribing => "Turning speech into text on this device.".to_owned(),
             _ => detail.clone(),
         };
@@ -973,8 +1050,12 @@ impl Render for DraftApp {
                         .filter(|text| !text.trim().is_empty());
                     let (words, words_color) = match partial {
                         Some(text) => (text, theme::text()),
-                        None => (
+                        None if self.settings.live_preview => (
                             "Speak now — your words appear here as you talk.".to_owned(),
+                            theme::text_muted(),
+                        ),
+                        None => (
+                            "Listening. Release to transcribe.".to_owned(),
                             theme::text_muted(),
                         ),
                     };
@@ -1234,6 +1315,37 @@ impl Render for DraftApp {
                             .text_color(theme::text_muted())
                             .child("The level moves while dictating or during a four-second test."),
                     ),
+            ))
+            .child(divider())
+            .child(section(
+                "Live preview",
+                "GPU cost while speaking",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                choice_pill("Off", !self.settings.live_preview)
+                                    .id("preview-off")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_live_preview(false, cx)
+                                    })),
+                            )
+                            .child(
+                                choice_pill("On", self.settings.live_preview)
+                                    .id("preview-on")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_live_preview(true, cx)
+                                    })),
+                            ),
+                    )
+                    .child(div().text_xs().text_color(theme::text_muted()).child(
+                        "On shows rolling partial text, but each update is a full GPU pass and can make laptop fans louder. Final text always uses the complete clip.",
+                    )),
             ))
             .child(divider())
             .child(section(

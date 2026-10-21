@@ -17,14 +17,16 @@ transcript.
 
 - Hold Right Ctrl (or Right Alt, F8, F9, Pause, or Scroll Lock), speak, release,
   and paste locally at the cursor.
-- Live partial text while you hold the key: the warm model re-reads the last few
-  seconds every ~650 ms, and the HUD shows the words before you release. The
-  final transcript still uses the complete clip, and previews never paste.
+- Opt-in live partial text while you hold the key. Settings > Live preview lets
+  the warm model re-read voiced audio and show words before you release. It is
+  off by default because each preview is a full GPU pass that can make laptop
+  fans louder. The final transcript still uses the complete clip, and previews
+  never paste.
 - The model loads once on Vulkan and stays warm; release p95 is 2.9-4.1x faster
   than Draft v3.5 on the benchmark clips.
 - Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
-- Click-through recording HUD with a live waveform, partial text, and listening
-  and transcribing states.
+- Click-through recording HUD with a live waveform, optional partial text, and
+  listening and transcribing states.
 - Preferences persist the shortcut, microphone, and model path to
   `%LOCALAPPDATA%\Draft4\settings.json`; choices survive restart.
 - Microphone picker with a four-second level check and automatic fallback to the
@@ -54,8 +56,9 @@ app's settings, history, or logs.
 - **Local.** No cloud, no account, no upload.
 - **Fast.** The same `large-v3-turbo` model as Draft v3, kept warm on the GPU,
   with no Python in the path. Benchmarked against v3.5 every release.
-- **Ready to stream.** The capture and inference split keeps preview work off
-  the final path; the current build pastes the final transcript only.
+- **Quiet by default.** One final GPU pass per dictation; live preview is an
+  explicit opt-in. The capture and inference split keeps preview work off the
+  final path, and the current build pastes the final transcript only.
 - **Accurate.** Whisper large-v3-turbo for the final transcript.
 - **Polished.** Native GPU-rendered UI, click-through HUD, tray app.
 - **Small.** No Python, no PyTorch; models download on demand.

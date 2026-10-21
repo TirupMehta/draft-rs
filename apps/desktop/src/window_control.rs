@@ -51,6 +51,18 @@ pub fn show(hwnd: isize) {
     }
 }
 
+/// Whether a native window is currently visible. The main window hides to the
+/// tray, and a hidden window does not need a continuous level-meter repaint.
+#[cfg(target_os = "windows")]
+pub fn is_visible(hwnd: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+
+    if hwnd == 0 {
+        return false;
+    }
+    unsafe { IsWindowVisible(hwnd as *mut _) != 0 }
+}
+
 /// Show or hide the HUD without blocking the caller. `ShowWindowAsync` posts
 /// the request, which keeps the HUD's `WM_SHOWWINDOW` draw callback out of the
 /// update that changed the dictation phase.
@@ -119,3 +131,10 @@ pub fn show(_hwnd: isize) {}
 
 #[cfg(not(target_os = "windows"))]
 pub fn set_hud_visible(_hwnd: isize, _visible: bool) {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn is_visible(_hwnd: isize) -> bool {
+    // There is no cross-platform visibility query here; keep the level meter
+    // live rather than silently freezing it on the other shells.
+    true
+}

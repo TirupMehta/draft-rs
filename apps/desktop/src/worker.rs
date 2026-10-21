@@ -26,6 +26,7 @@ pub enum Event {
     Partial {
         text: String,
         serial: u64,
+        elapsed: Duration,
     },
     Transcribed {
         text: String,
@@ -113,19 +114,39 @@ fn run(
         return;
     }
 
+    // Once one final pass has identified the language, previews can skip
+    // auto-detection and decode with that hint. The final pass still detects
+    // the language itself, so switching languages remains supported.
+    let mut language: Option<String> = None;
+
     while let Ok(job) = jobs.recv() {
         if job.preview {
-            let text = match engine.transcribe(&job.samples, &TranscriptionOptions::default()) {
+            let started = Instant::now();
+            let text = match engine.transcribe(
+                &job.samples,
+                &TranscriptionOptions {
+                    language: language.clone(),
+                    low_latency: true,
+                    ..TranscriptionOptions::default()
+                },
+            ) {
                 Ok(result) => draft_core::text::clean_text(&result.text, false),
                 Err(error) => {
                     tracing::debug!(%error, "preview pass failed");
                     String::new()
                 }
             };
+            let elapsed = started.elapsed();
+            tracing::debug!(
+                elapsed_ms = elapsed.as_millis(),
+                audio_s = job.samples.len() as f64 / 16_000.0,
+                "preview pass"
+            );
             if events
                 .send(Event::Partial {
                     text,
                     serial: job.serial,
+                    elapsed,
                 })
                 .is_err()
             {
@@ -138,6 +159,9 @@ fn run(
         match engine.transcribe(&job.samples, &TranscriptionOptions::default()) {
             Ok(result) => {
                 let cleaned = draft_core::text::clean_text(&result.text, false);
+                if let Some(detected) = result.language.clone() {
+                    language = Some(detected);
+                }
                 let elapsed = started.elapsed();
                 if cleaned.is_empty() || !draft_core::text::is_meaningful(&cleaned) {
                     let _ = events.send(Event::Empty { elapsed });
@@ -145,7 +169,7 @@ fn run(
                 }
 
                 let paste_error = if paste {
-                    draft_paste::paste_text(&cleaned)
+                    draft_paste::paste_text(&draft_core::text::for_paste(&cleaned))
                         .err()
                         .map(|error| format!("{error:#}"))
                 } else {

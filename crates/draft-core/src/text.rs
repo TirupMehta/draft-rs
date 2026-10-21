@@ -129,6 +129,17 @@ pub fn is_meaningful(input: &str) -> bool {
     input.chars().any(char::is_alphanumeric)
 }
 
+/// Text for insertion at the cursor: one trailing space so a second dictation
+/// does not run into the first one. History and the live HUD keep the trimmed
+/// form.
+pub fn for_paste(input: &str) -> String {
+    let mut out = input.to_owned();
+    if !out.is_empty() && !out.ends_with(char::is_whitespace) {
+        out.push(' ');
+    }
+    out
+}
+
 /// A single taught correction: what the model tends to hear, and what should be
 /// written instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +301,14 @@ mod tests {
         assert_eq!(clean_text("  spaced   out  ", false), "Spaced out");
         assert_eq!(clean_text("", true), "");
         assert_eq!(clean_text("   ", true), "");
+    }
+
+    #[test]
+    fn paste_text_gets_one_trailing_space_but_history_does_not() {
+        assert_eq!(for_paste("Hello."), "Hello. ");
+        assert_eq!(for_paste("Hello. "), "Hello. ");
+        assert_eq!(for_paste(""), "");
+        assert_eq!(clean_text("hello", false), "Hello");
     }
 
     #[test]

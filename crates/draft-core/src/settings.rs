@@ -27,6 +27,11 @@ pub struct Settings {
     pub microphone: Option<String>,
     /// Whether a finished transcript is pasted at the cursor.
     pub paste: bool,
+    /// Whether the HUD asks for rolling partial transcripts during capture.
+    /// This is off by default because each preview is a full GPU pass; on a
+    /// laptop that can keep the fans running for the whole dictation. The
+    /// final transcript always uses the complete clip.
+    pub live_preview: bool,
 }
 
 impl Default for Settings {
@@ -36,6 +41,7 @@ impl Default for Settings {
             model: None,
             microphone: None,
             paste: true,
+            live_preview: false,
         }
     }
 }
@@ -115,6 +121,7 @@ mod tests {
         assert_eq!(settings.model, None);
         assert_eq!(settings.microphone, None);
         assert!(settings.paste);
+        assert!(!settings.live_preview);
     }
 
     #[test]
@@ -134,6 +141,7 @@ mod tests {
             model: Some(directory.path().join("models/turbo.gguf")),
             microphone: Some("USB Microphone".to_owned()),
             paste: false,
+            live_preview: true,
         };
 
         settings.save(&path).unwrap();
@@ -164,6 +172,10 @@ mod tests {
         assert_eq!(settings.microphone.as_deref(), Some("Desk Mic"));
         assert_eq!(settings.model, None);
         assert!(settings.paste);
+        assert!(
+            !settings.live_preview,
+            "older files must keep the quiet default"
+        );
     }
 
     #[test]

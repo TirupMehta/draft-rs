@@ -75,6 +75,7 @@ Transcribe options:
   --model <path>                GGUF model (required)
   --backend auto|vulkan|cpu     Compute backend (default: auto)
   --language <code>             ISO language hint
+  --low-latency                 Skip temperature fallback (preview-style decode)
   --no-warmup                   Skip the untimed pipeline warm-up
 
 Bench options:
@@ -82,6 +83,7 @@ Bench options:
   --fixtures <dir>              Directory of 16 kHz mono WAV files
   --runs <n>                    Measured runs per clip (default: 5)
   --warmup <n>                  Untimed runs before measuring
+  --pause-ms <n>                Idle gap between measured runs
   --trace                       Print every measured run
   --json <path>                 Write the report as JSON
   --backend auto|vulkan|cpu     Compute backend (default: auto)
@@ -742,6 +744,9 @@ fn bench(args: &[String]) -> Result<()> {
             totals.push(elapsed);
             timings.push(result.timings);
             last_text = result.text;
+            if options.pause_ms > 0 && run + 1 < options.runs {
+                std::thread::sleep(Duration::from_millis(options.pause_ms as u64));
+            }
         }
 
         totals.sort_by(f64::total_cmp);
@@ -822,6 +827,7 @@ struct EngineArgs {
     json: Option<PathBuf>,
     runs: usize,
     warmup: usize,
+    pause_ms: usize,
     no_warmup: bool,
     paste: bool,
     trace: bool,
@@ -837,6 +843,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
     let mut json = None;
     let mut runs = 5;
     let mut warmup = 2;
+    let mut pause_ms = 0;
     let mut no_warmup = false;
     let mut paste = false;
     let mut trace = false;
@@ -844,6 +851,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
     let mut language = None;
     let mut vocabulary = Vec::new();
     let mut prompt = None;
+    let mut low_latency = false;
     let mut files = Vec::new();
 
     let mut index = 0;
@@ -886,6 +894,10 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
                 index += 1;
                 warmup = parse_number(args.get(index), arg)?;
             }
+            "--pause-ms" => {
+                index += 1;
+                pause_ms = parse_number(args.get(index), arg)?;
+            }
             "--language" => {
                 index += 1;
                 language = Some(
@@ -916,6 +928,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
                 );
             }
             "--no-warmup" => no_warmup = true,
+            "--low-latency" => low_latency = true,
             "--paste" => paste = true,
             "--trace" => trace = true,
             "--hotkey" => {
@@ -948,6 +961,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
         json,
         runs,
         warmup,
+        pause_ms,
         no_warmup,
         paste,
         trace,
@@ -956,6 +970,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
             language,
             vocabulary,
             prompt,
+            low_latency,
         },
         files,
     })

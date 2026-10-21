@@ -132,6 +132,10 @@ fn main() -> color_eyre::Result<()> {
         let poll_app = app.clone();
         cx.spawn(async move |cx| {
             loop {
+                // Keep the event poll fast so a hotkey release is not held
+                // behind a repaint budget. The app throttles the expensive
+                // parts separately: the HUD to 15 fps, the visible window to
+                // 30 fps, and a hidden window not at all.
                 Timer::after(Duration::from_millis(16)).await;
                 if poll_app.update(cx, |app, cx| app.poll(cx)).is_err() {
                     break;
