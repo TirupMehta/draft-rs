@@ -9,8 +9,8 @@
 Thumbs.db
 .idea/
 .vscode/
-setup-windows.log
-fix-vs-buildtools.log
+/.commandcode/
+*.log
 bench/fixtures/
 bench/results/
 /dist

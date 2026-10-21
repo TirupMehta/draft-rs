@@ -1,10 +1,13 @@
 #Requires -Version 5.1
 # Repairs a canceled or partial Visual Studio Build Tools instance, then installs
 # the C++ workload. Safe to rerun.
+#
+# This is a repair path for a broken toolchain, not part of building Draft.
+# `scripts/setup-windows.ps1` does the full first-time setup.
 
 $ErrorActionPreference = "Continue"
 
-$transcript = Join-Path $PSScriptRoot "..\fix-vs-buildtools.log"
+$transcript = Join-Path $PSScriptRoot "..\repair-buildtools.log"
 try { Start-Transcript -Path $transcript -Append | Out-Null } catch { }
 
 $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
@@ -75,7 +78,7 @@ Write-Host ""
 if (Test-VCTools) {
     Write-Host "Visual C++ tools installed successfully." -ForegroundColor Green
 } else {
-    Write-Host "C++ tools are still missing. See fix-vs-buildtools.log and the Visual Studio installer logs." -ForegroundColor Red
+    Write-Host "C++ tools are still missing. See repair-buildtools.log and the Visual Studio installer logs." -ForegroundColor Red
 }
 
 try { Stop-Transcript | Out-Null } catch { }

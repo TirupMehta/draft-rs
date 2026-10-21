@@ -59,9 +59,29 @@ assets                app icon (draft.ico, draft-256.png)
 bench                 fixtures, baseline scripts, latency measurements
 docs                  SPEC, ROADMAP, PERFORMANCE, HANDOFF
 packaging/windows     Inno Setup installer script
-scripts               build-installer.ps1, setup-windows.ps1
+scripts               build-installer.ps1, setup-windows.ps1, repair-buildtools.ps1
 tools/inspect         render-inspection tooling (see §9)
 ```
+
+### What is not app code
+
+The shipped product is **one `draft.exe`** (plus `draftctl` for development)
+and **one `Draft-Setup-<version>.exe`** installer. Nothing in the running app
+calls PowerShell, and no script is installed with it.
+
+The `.ps1` files are developer-side only:
+
+| File | Why it exists |
+|---|---|
+| `scripts/setup-windows.ps1` | one-time toolchain setup: Rust, MSVC C++ tools, CMake, Vulkan SDK |
+| `scripts/repair-buildtools.ps1` | repairs a half-installed Visual Studio C++ workload |
+| `scripts/build-installer.ps1` | compiles `packaging/windows/draft.iss` with Inno Setup |
+| `tools/inspect/*.ps1` | renders the real window and prints it as text (see §9) |
+
+They are Windows-only because the product is Windows-only today. A
+cross-platform repository would use shell scripts or a task runner instead;
+none of that changes the shipped binary. Do not add a script for a feature —
+scripts exist for the toolchain and for verification, never for behaviour.
 
 ### The desktop shell (`apps/desktop/src`)
 

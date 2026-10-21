@@ -76,17 +76,28 @@ app's settings, history, or logs.
 ## Repository layout
 
 ```text
-crates/draft-core/     platform-neutral text, settings, models, engine, history
-crates/draft-cli/      development CLI
+crates/draft-core/     platform-neutral text, settings, models, history
+crates/draft-engine/   GGUF inference through transcribe.cpp
+crates/draft-audio/    microphone capture and resampling
+crates/draft-hotkey/  the global dictation key
+crates/draft-paste/   clipboard insertion
+crates/draft-cli/      development CLI (draftctl)
 apps/desktop/          GPUI shell for Windows, macOS, and Linux
-apps/mobile/           native iOS and Android shells over the core (later)
-docs/                  product spec and roadmap
-scripts/               toolchain and release scripts
+docs/                  product spec, roadmap, performance, handoff
+scripts/               Windows toolchain and release helpers
+tools/inspect/         render inspection (text reports of the real window)
 ```
 
 `draft-core` owns behavior. Platform crates own windows, microphones, hotkeys,
 clipboards, trays, updaters, and permissions. No OS-specific type crosses into
 the core.
+
+**Nothing in the shipped product needs PowerShell.** Draft is a single
+self-contained `draft.exe`; the installer is a single `Draft-Setup-<version>.exe`.
+The `.ps1` files are developer-side only: `scripts/` sets up a Windows
+toolchain and builds the installer, and `tools/inspect/` prints the rendered
+window as text so the interface can be checked without a screenshot. See
+[AGENTS.md](AGENTS.md) for the working rules.
 
 ## Stack
 
