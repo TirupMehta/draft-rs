@@ -17,10 +17,14 @@ transcript.
 
 - Hold Right Ctrl (or Right Alt, F8, F9, Pause, or Scroll Lock), speak, release,
   and paste locally at the cursor.
+- Live partial text while you hold the key: the warm model re-reads the last few
+  seconds every ~650 ms, and the HUD shows the words before you release. The
+  final transcript still uses the complete clip, and previews never paste.
 - The model loads once on Vulkan and stays warm; release p95 is 2.9-4.1x faster
   than Draft v3.5 on the benchmark clips.
 - Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
-- Click-through recording HUD with listening and transcribing states.
+- Click-through recording HUD with a live waveform, partial text, and listening
+  and transcribing states.
 - Preferences persist the shortcut, microphone, and model path to
   `%LOCALAPPDATA%\Draft4\settings.json`; choices survive restart.
 - Microphone picker with a four-second level check and automatic fallback to the
@@ -30,12 +34,15 @@ transcript.
 - Retained history at the core: text plus duration, with a retention window, an
   entry cap, a byte cap, search, delete, and clear (`draftctl history`). The app
   records each finished transcript; the History pane is not built yet.
+- A per-user Windows installer with a standard wizard, Start Menu and optional
+  desktop shortcuts, and a clean uninstall. No administrator prompt and no
+  console window. It is not code-signed yet.
 - `draftctl` for model management, transcription, microphone capture, and
   benchmark runs.
 
-Not yet: streaming partial text, the history pane, the multi-model catalog,
-installer and signed updates, macOS/Linux shells, and mobile. Real-speech WER
-parity with v3.5 is the open release gate; see
+Not yet: the native streaming preview model, the history pane, the multi-model
+catalog, signed installers and updates, macOS/Linux shells, and mobile.
+Real-speech WER parity with v3.5 is the open release gate; see
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 Draft v3.5 keeps its data in `%LOCALAPPDATA%\Draft`. This rewrite uses
@@ -106,6 +113,23 @@ and `model verify` report what is installed. The development CLI is
 `cargo run -p draft -- --help` (binary `draftctl`). Run
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
 and `cargo test --workspace` before committing.
+
+### Windows installer
+
+Inno Setup 6 is the only extra tool (`winget install JRSoftware.InnoSetup`).
+Build the release binary first, then the wizard:
+
+```powershell
+cargo build --release -p draft-desktop
+.\scripts\build-installer.ps1
+```
+
+That writes `dist\Draft-Setup-<version>.exe`, a per-user install under
+`%LOCALAPPDATA%\Programs\Draft` with no administrator prompt. Add
+`-IncludeModel` to embed the installed F16 GGUF for a fully offline install; the
+installer then skips the copy when `%LOCALAPPDATA%\Draft4\models` already holds
+it. Uninstall removes the app and shortcuts but keeps settings, history, logs,
+and models.
 
 ## License
 

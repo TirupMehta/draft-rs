@@ -11,12 +11,14 @@ every device, fully local, faster than the cloud, with none of the clipboard
 gymnastics.
 
 **Current build (Windows x64, 2026-10-21).** Hold-to-talk dictation, six
-shortcut presets, the tray and click-through HUD, persisted shortcut/microphone/
-model settings, the microphone level check and fallback, the pinned resumable
-model installer, the bounded history store, and the Vulkan benchmark are
-working. Streaming, the history pane, installer/updates, macOS/Linux, and mobile
-are not built yet. Real-speech WER parity is the open release gate.
-[`ROADMAP.md`](ROADMAP.md) is the live checklist.
+shortcut presets, the tray and click-through HUD with a live waveform and
+rolling partial text, persisted shortcut/microphone/model settings, the
+microphone level check and fallback, the pinned resumable model installer, the
+bounded history store, the Vulkan benchmark, and the per-user Inno Setup wizard
+are working. The native Parakeet streaming pass, the history pane, signed
+updates, macOS/Linux shells, and mobile are not built yet. Real-speech WER
+parity is the open release gate. [`ROADMAP.md`](ROADMAP.md) is the live
+checklist.
 
 ## 2. Why this exists
 

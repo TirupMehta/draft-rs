@@ -143,6 +143,23 @@ impl Recorder {
         let samples = resample(&mono, self.sample_rate, OUTPUT_RATE)?;
         Ok(Recording { samples })
     }
+
+    /// A 16 kHz mono snapshot of the most recent `seconds` of capture.
+    ///
+    /// Live previews only need the tail, so this clones a bounded slice of the
+    /// raw buffer instead of the whole recording. The capture callback keeps
+    /// writing while the copy is resampled off the audio thread.
+    pub fn preview(&self, seconds: u32) -> Result<Recording> {
+        let sample_limit = seconds as usize * self.sample_rate as usize * self.channels;
+        let interleaved = {
+            let buffer = self.samples.lock().expect("audio buffer poisoned");
+            let start = buffer.len().saturating_sub(sample_limit);
+            buffer[start..].to_vec()
+        };
+        let mono = downmix(&interleaved, self.channels);
+        let samples = resample(&mono, self.sample_rate, OUTPUT_RATE)?;
+        Ok(Recording { samples })
+    }
 }
 
 /// Record for a fixed duration. Useful for diagnostics and smoke tests.

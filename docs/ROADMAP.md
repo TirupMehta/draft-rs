@@ -64,9 +64,12 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
       progress, verification, atomic install, status, verify, and remove. F16 is
       the default; Q8_0 is the smaller catalog entry.
 - [ ] Parakeet Unified English entry in the same catalog.
-- [ ] Streaming session with partial text; final whole-clip fallback.
+- [x] Streaming session with partial text; final whole-clip fallback. The
+      Windows shell re-transcribes the last ~12 s on the warm model while the key
+      is held; previews are display-only and the final pass still uses the whole
+      clip.
 - [x] HUD: click-through, always-on-top listening and transcribing states.
-- [ ] HUD waveform and partial text.
+- [x] HUD waveform and partial text.
 - [ ] Two-pass mode: Parakeet preview, Whisper final.
 - [x] F16 is the shipping artifact for exact float16 parity with v3.5; Q8_0
       stays a smaller catalog option. Real-speech WER within 0.5 pp of v3.5 is
@@ -92,7 +95,9 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 
 ## M4 — Distribution
 
-- [ ] Per-user installer with Start Menu / Applications entry and clean uninstall.
+- [x] Per-user installer with Start Menu / Applications entry and clean uninstall.
+      Windows ships an Inno Setup wizard under `%LOCALAPPDATA%\Programs\Draft`;
+      it is unsigned for now.
 - [ ] Signed update feed with version ordering and rollback.
 - [ ] Clean-VM install -> update -> uninstall test.
 - [ ] Code signing when a certificate is available.

@@ -26,6 +26,7 @@ gpui = { version = "0.2.2", default-features = false, features = [
 raw-window-handle = "0.6"
 tray-icon = "0.24"
 tracing = "0.1"
+tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -33,3 +34,6 @@ windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

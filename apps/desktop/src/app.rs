@@ -73,6 +73,10 @@ pub struct DraftApp {
     jobs: Sender<Job>,
     worker_events: Receiver<worker::Event>,
     pending_jobs: usize,
+    partial: Option<String>,
+    preview_pending: bool,
+    preview_at: Instant,
+    serial: u64,
     last: Option<LastResult>,
     error: Option<String>,
     notice: Option<String>,
@@ -87,6 +91,7 @@ pub struct DraftApp {
     main_window: Option<AnyWindowHandle>,
     main_hwnd: Option<isize>,
     tray: Option<TrayIcon>,
+    clock: Instant,
 }
 
 impl DraftApp {
@@ -181,6 +186,10 @@ impl DraftApp {
             jobs,
             worker_events,
             pending_jobs: 0,
+            partial: None,
+            preview_pending: false,
+            preview_at: Instant::now(),
+            serial: 0,
             last: None,
             error: initial_error,
             notice,
@@ -195,6 +204,7 @@ impl DraftApp {
             main_window: None,
             main_hwnd: None,
             tray,
+            clock: Instant::now(),
         }
     }
 
@@ -280,6 +290,7 @@ impl DraftApp {
             // Keep the level meter moving while audio is open.
             changed = true;
         }
+        self.maybe_preview();
         self.sync_hud(cx);
         if changed {
             cx.notify();
@@ -495,7 +506,11 @@ impl DraftApp {
 
     fn sync_hud(&mut self, cx: &mut Context<Self>) {
         let snapshot = match self.phase {
-            Phase::Listening => Some(HudSnapshot::listening(&self.hotkey_label)),
+            Phase::Listening => Some(HudSnapshot::listening(
+                &self.hotkey_label,
+                self.partial.clone(),
+                self.input_level(),
+            )),
             Phase::Transcribing => Some(HudSnapshot::transcribing()),
             Phase::Loading | Phase::Ready | Phase::Error => None,
         };
@@ -512,6 +527,36 @@ impl DraftApp {
                 window_control::set_hud_visible(hwnd, visible);
             }
             self.hud_visible = visible;
+        }
+    }
+
+    /// While the key is held, transcribe the last few seconds now and then so
+    /// the HUD can show what was heard. The final pass still uses the complete
+    /// clip, and previews never paste.
+    fn maybe_preview(&mut self) {
+        if self.phase != Phase::Listening || self.preview_pending {
+            return;
+        }
+        if self.preview_at.elapsed() < Duration::from_millis(650) {
+            return;
+        }
+        let Some(recorder) = self.recorder.as_ref() else {
+            return;
+        };
+        let Ok(recording) = recorder.preview(12) else {
+            return;
+        };
+        if recording.samples.len() < 12_000 {
+            return;
+        }
+        let job = Job {
+            samples: recording.samples,
+            serial: self.serial,
+            preview: true,
+        };
+        if self.jobs.send(job).is_ok() {
+            self.preview_pending = true;
+            self.preview_at = Instant::now();
         }
     }
 
@@ -536,6 +581,15 @@ impl DraftApp {
                 self.phase = Phase::Error;
                 self.error = Some(error);
             }
+            worker::Event::Partial { text, serial } => {
+                if serial != self.serial {
+                    return;
+                }
+                self.preview_pending = false;
+                if self.phase == Phase::Listening && !text.trim().is_empty() {
+                    self.partial = Some(text);
+                }
+            }
             worker::Event::Transcribed {
                 text,
                 elapsed,
@@ -559,11 +613,13 @@ impl DraftApp {
                     _timings: timings,
                     paste_error,
                 });
+                self.partial = None;
                 self.notice = None;
                 self.refresh_phase();
             }
             worker::Event::Empty { elapsed } => {
                 self.pending_jobs = self.pending_jobs.saturating_sub(1);
+                self.partial = None;
                 self.notice = Some(format!(
                     "No speech detected in that clip ({:.0} ms).",
                     elapsed.as_secs_f64() * 1000.0
@@ -572,6 +628,7 @@ impl DraftApp {
             }
             worker::Event::JobFailed { error } => {
                 self.pending_jobs = self.pending_jobs.saturating_sub(1);
+                self.partial = None;
                 self.error = Some(format!("Transcription failed: {error}"));
                 self.refresh_phase();
             }
@@ -597,6 +654,10 @@ impl DraftApp {
 
         self.error = None;
         self.notice = None;
+        self.partial = None;
+        self.preview_pending = false;
+        self.preview_at = Instant::now();
+        self.serial = self.serial.wrapping_add(1);
         // A level check holds the microphone open. A real dictation takes over
         // that stream instead of waiting for the check to expire.
         self.level_test = None;
@@ -636,6 +697,8 @@ impl DraftApp {
 
                 let job = Job {
                     samples: recording.samples,
+                    serial: self.serial,
+                    preview: false,
                 };
                 if self.jobs.send(job).is_err() {
                     self.error = Some("The engine worker stopped.".to_owned());
@@ -656,6 +719,7 @@ impl DraftApp {
     fn cancel_capture(&mut self) {
         if let Some(recorder) = self.recorder.take() {
             let _ = recorder.stop();
+            self.partial = None;
             self.notice = Some("Cancelled.".to_owned());
             self.refresh_phase();
         }
@@ -721,10 +785,6 @@ impl Render for DraftApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (status, detail, color) = self.status();
         let engine = engine_label(self.backend.as_deref(), self.device.as_deref());
-        let load = self
-            .load_ms
-            .map(|load| format!("loaded {:.1} s", load as f64 / 1000.0))
-            .unwrap_or_else(|| "one model stays warm".to_owned());
         let model_name = model_label(&self.model);
         let model_detail = model_quantization(&self.model);
         let model_path = self.model.display().to_string();
@@ -735,8 +795,10 @@ impl Render for DraftApp {
                 None => "System default".to_owned(),
             },
         };
-        let level_fill = (self.input_level().sqrt() * 1.25).clamp(0.0, 1.0);
+        let level = self.input_level();
+        let level_fill = (level.sqrt() * 1.25).clamp(0.0, 1.0);
         let testing = self.level_test.is_some();
+        let phase = self.clock.elapsed().as_secs_f32() * 7.0;
 
         let hotkey_pills = HOTKEYS
             .iter()
@@ -779,8 +841,8 @@ impl Render for DraftApp {
             div()
                 .id("model-default")
                 .px_3()
-                .py_2()
-                .rounded_lg()
+                .py(px(6.0))
+                .rounded_full()
                 .border_1()
                 .border_color(theme::border())
                 .text_xs()
@@ -792,19 +854,260 @@ impl Render for DraftApp {
                 .into_any_element()
         } else {
             div()
+                .px_3()
+                .py(px(6.0))
+                .rounded_full()
+                .bg(theme::elevated())
                 .text_xs()
                 .text_color(theme::text_muted())
                 .child("Default")
                 .into_any_element()
         };
 
-        let preferences = div()
+        let header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .rounded_lg()
+                            .bg(theme::accent())
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .text_color(theme::background())
+                                    .child("D"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(theme::text())
+                                    .child("Draft"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme::text_muted())
+                                    .child("On-device dictation"),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child("Closing hides to tray"),
+                    )
+                    .child(
+                        div()
+                            .id("close")
+                            .px_3()
+                            .py(px(6.0))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(theme::border())
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(theme::text()))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.tray.is_some() {
+                                    window_control::hide(window);
+                                } else {
+                                    cx.quit();
+                                }
+                            }))
+                            .child(if self.tray.is_some() { "Hide" } else { "Quit" }),
+                    ),
+            );
+
+        let hero_detail = match self.phase {
+            Phase::Listening => "Speak normally. Words appear here before you release.".to_owned(),
+            Phase::Transcribing => "Turning speech into text on this device.".to_owned(),
+            _ => detail.clone(),
+        };
+
+        let hero_body: AnyElement =
+            match self.phase {
+                Phase::Listening => {
+                    let partial = self
+                        .partial
+                        .as_deref()
+                        .map(preview)
+                        .filter(|text| !text.trim().is_empty());
+                    let (words, words_color) = match partial {
+                        Some(text) => (text, theme::text()),
+                        None => (
+                            "Speak now — your words appear here as you talk.".to_owned(),
+                            theme::text_muted(),
+                        ),
+                    };
+                    div()
+                        .bg(theme::elevated())
+                        .rounded_lg()
+                        .p_5()
+                        .flex()
+                        .flex_col()
+                        .gap_4()
+                        .child(div().text_lg().text_color(words_color).child(words))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_4()
+                                .child(level_bars(level, 24, 30.0, 3.0, phase, theme::accent()))
+                                .child(div().text_xs().text_color(theme::text_muted()).child(
+                                    format!(
+                                        "Release {} to transcribe · Esc cancels",
+                                        self.hotkey_label
+                                    ),
+                                )),
+                        )
+                        .into_any_element()
+                }
+                Phase::Transcribing => div()
+                    .bg(theme::elevated())
+                    .rounded_lg()
+                    .p_5()
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .child(level_bars(
+                        0.0,
+                        24,
+                        24.0,
+                        3.0,
+                        phase * 0.6,
+                        theme::text_muted(),
+                    ))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme::text_muted())
+                            .child("Finishing on this device…"),
+                    )
+                    .into_any_element(),
+                _ => {
+                    let (title, hint) = match self.phase {
+                        Phase::Loading => (
+                            "Warming the model",
+                            "Dictation starts as soon as the local model is ready.",
+                        ),
+                        Phase::Error => (
+                            "Check the message below",
+                            "Fix the problem, then restart Draft.",
+                        ),
+                        _ => ("Hold to dictate", "Release to paste at your cursor."),
+                    };
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_4()
+                        .child(keycap(self.hotkey_label.clone()))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(div().text_sm().text_color(theme::text()).child(title))
+                                .child(div().text_xs().text_color(theme::text_muted()).child(hint)),
+                        )
+                        .into_any_element()
+                }
+            };
+
+        let hero = div()
             .bg(theme::surface())
+            .border_1()
+            .border_color(theme::border())
             .rounded_lg()
-            .p_5()
+            .p_6()
             .flex()
             .flex_col()
-            .gap_4()
+            .gap_5()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(div().w(px(9.0)).h(px(9.0)).rounded_full().bg(color))
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(theme::text())
+                                    .child(status),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .px_3()
+                            .py(px(4.0))
+                            .rounded_full()
+                            .bg(theme::background())
+                            .border_1()
+                            .border_color(theme::border())
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child("LOCAL"),
+                    ),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme::text_muted())
+                    .child(hero_detail),
+            )
+            .child(hero_body)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_6()
+                    .pt_1()
+                    .child(stat("Shortcut", self.hotkey_label.clone()))
+                    .child(stat("Model", format!("{model_name} · {model_detail}")))
+                    .child(stat("Engine", engine)),
+            );
+
+        let preferences = div()
+            .bg(theme::surface())
+            .border_1()
+            .border_color(theme::border())
+            .rounded_lg()
+            .p_6()
+            .flex()
+            .flex_col()
+            .gap_5()
             .child(
                 div()
                     .flex()
@@ -813,38 +1116,41 @@ impl Render for DraftApp {
                     .child(
                         div()
                             .text_sm()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(theme::text())
-                            .child("Preferences"),
+                            .child("Settings"),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(theme::text_muted())
-                            .child("Saved locally"),
+                            .child("Saved on this machine"),
                     ),
             )
-            .child(
+            .child(divider())
+            .child(section(
+                "Dictation key",
+                "Hold to dictate · release to paste",
                 div()
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .child(section_label("Dictation key"))
+                    .gap_3()
                     .child(div().flex().flex_wrap().gap_2().children(hotkey_pills))
                     .child(
                         div()
                             .text_xs()
                             .text_color(theme::text_muted())
-                            .child(
-                                "Hold the key to dictate; release to paste. Changes apply immediately.",
-                            ),
+                            .child("Changes apply immediately. Esc cancels an active capture."),
                     ),
-            )
-            .child(
+            ))
+            .child(divider())
+            .child(section(
+                "Microphone",
+                "Input device",
                 div()
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(section_label("Microphone"))
                     .child(
                         div()
                             .flex()
@@ -862,16 +1168,13 @@ impl Render for DraftApp {
                                             .text_color(theme::text())
                                             .child(microphone_label),
                                     )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme::text_muted())
-                                            .child(if self.microphone.is_some() {
-                                                "Saved in settings"
-                                            } else {
-                                                "Follows the system default"
-                                            }),
-                                    ),
+                                    .child(div().text_xs().text_color(theme::text_muted()).child(
+                                        if self.microphone.is_some() {
+                                            "Selected microphone"
+                                        } else {
+                                            "Follows the system default"
+                                        },
+                                    )),
                             )
                             .child(
                                 div()
@@ -880,14 +1183,14 @@ impl Render for DraftApp {
                                     .gap_3()
                                     .child(
                                         div()
-                                            .w(px(160.0))
-                                            .h(px(6.0))
+                                            .w(px(120.0))
+                                            .h(px(5.0))
                                             .bg(theme::background())
                                             .rounded_full()
                                             .child(
                                                 div()
                                                     .h_full()
-                                                    .w(px(160.0 * level_fill))
+                                                    .w(px(120.0 * level_fill))
                                                     .bg(theme::accent())
                                                     .rounded_full(),
                                             ),
@@ -896,8 +1199,8 @@ impl Render for DraftApp {
                                         div()
                                             .id("microphone-test")
                                             .px_3()
-                                            .py_2()
-                                            .rounded_lg()
+                                            .py(px(6.0))
+                                            .rounded_full()
                                             .border_1()
                                             .border_color(theme::border())
                                             .text_xs()
@@ -916,17 +1219,17 @@ impl Render for DraftApp {
                         div()
                             .text_xs()
                             .text_color(theme::text_muted())
-                            .child(
-                                "The level updates while dictating or during a four-second check.",
-                            ),
+                            .child("The level moves while dictating or during a four-second test."),
                     ),
-            )
-            .child(
+            ))
+            .child(divider())
+            .child(section(
+                "Model",
+                "Local GGUF · never downloaded at runtime",
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(section_label("Model"))
                     .child(
                         div()
                             .flex()
@@ -938,6 +1241,8 @@ impl Render for DraftApp {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
+                                    .flex_1()
+                                    .min_w(px(0.0))
                                     .child(
                                         div()
                                             .text_sm()
@@ -948,61 +1253,16 @@ impl Render for DraftApp {
                                         div()
                                             .text_xs()
                                             .text_color(theme::text_muted())
+                                            .truncate()
                                             .child(model_path),
                                     ),
                             )
                             .child(model_action),
                     )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child(
-                                "Set a custom GGUF path with --model or settings.json; restart Draft to load it.",
-                            ),
-                    ),
-            );
-
-        let has_tray = self.tray.is_some();
-        let header = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .w(px(10.0))
-                            .h(px(10.0))
-                            .rounded_full()
-                            .bg(theme::accent()),
-                    )
-                    .child(div().text_2xl().text_color(theme::text()).child("Draft")),
-            )
-            .child(
-                div()
-                    .id("close")
-                    .px_3()
-                    .py_2()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme::border())
-                    .text_sm()
-                    .text_color(theme::text_muted())
-                    .cursor_pointer()
-                    .hover(|style| style.text_color(theme::text()))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        if this.tray.is_some() {
-                            window_control::hide(window);
-                        } else {
-                            cx.quit();
-                        }
-                    }))
-                    .child(if has_tray { "Hide" } else { "Quit" }),
-            );
+                    .child(div().text_xs().text_color(theme::text_muted()).child(
+                        "Set a different GGUF with --model or settings.json, then restart.",
+                    )),
+            ));
 
         let mut content = div()
             .id("draft-content")
@@ -1010,74 +1270,46 @@ impl Render for DraftApp {
             .flex_col()
             .flex_1()
             .min_h(px(0.0))
-            .gap_5()
+            .gap_4()
             .overflow_y_scroll()
-            .child(
-                div()
-                    .bg(theme::surface())
-                    .rounded_lg()
-                    .p_6()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(div().w(px(10.0)).h(px(10.0)).rounded_full().bg(color))
-                            .child(div().text_xl().text_color(theme::text()).child(status)),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme::text_muted())
-                            .child(detail),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(info_row(
-                        "Shortcut",
-                        self.hotkey_label.clone(),
-                        "hold to dictate".to_owned(),
-                    ))
-                    .child(info_row("Model", model_name, model_detail))
-                    .child(info_row("Engine", engine, load)),
-            )
-            .child(preferences);
+            .child(hero);
 
         if let Some(last) = &self.last {
             let mut card = div()
                 .bg(theme::surface())
+                .border_1()
+                .border_color(theme::border())
                 .rounded_lg()
                 .p_5()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap_3()
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(theme::text_muted())
-                        .child("Last dictation"),
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::text_muted())
+                                .child("Last dictation"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::text_muted())
+                                .child(format!(
+                                    "{:.0} ms engine · {:.1}s audio",
+                                    last.engine_ms as f64, last.audio_s
+                                )),
+                        ),
                 )
                 .child(
                     div()
                         .text_sm()
                         .text_color(theme::text())
                         .child(preview(&last.text)),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme::text_muted())
-                        .child(format!(
-                            "{:.0} ms engine · {:.1}s audio",
-                            last.engine_ms as f64, last.audio_s
-                        )),
                 );
             if let Some(error) = &last.paste_error {
                 card = card.child(
@@ -1090,10 +1322,14 @@ impl Render for DraftApp {
             content = content.child(card);
         }
 
+        content = content.child(preferences);
+
         if let Some(error) = &self.error {
             content = content.child(
                 div()
                     .bg(theme::surface())
+                    .border_1()
+                    .border_color(theme::danger())
                     .rounded_lg()
                     .p_4()
                     .text_xs()
@@ -1116,15 +1352,27 @@ impl Render for DraftApp {
             .bg(theme::background())
             .flex()
             .flex_col()
-            .p_8()
-            .gap_5()
+            .p_6()
+            .gap_4()
             .child(header)
             .child(content)
             .child(
                 div()
-                    .text_xs()
-                    .text_color(theme::text_muted())
-                    .child("Local audio. Local text. Nothing leaves this machine."),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child("Local audio. Local text. Nothing leaves this machine."),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::text_muted())
+                            .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+                    ),
             )
     }
 }
@@ -1161,46 +1409,22 @@ fn engine_label(backend: Option<&str>, device: Option<&str>) -> String {
     }
 }
 
-fn info_row(label: &'static str, value: String, detail: String) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .bg(theme::surface())
-        .rounded_lg()
-        .px_5()
-        .py_4()
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(div().text_xs().text_color(theme::text_muted()).child(label))
-                .child(div().text_sm().text_color(theme::text()).child(value)),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(theme::text_muted())
-                .child(detail),
-        )
-}
-
 fn choice_pill(label: impl IntoElement, selected: bool) -> Div {
     let pill = div()
         .px_3()
-        .py_2()
-        .rounded_lg()
+        .py(px(6.0))
+        .rounded_full()
         .border_1()
         .text_xs()
         .cursor_pointer();
     if selected {
-        pill.bg(theme::accent())
+        pill.bg(theme::elevated())
             .border_color(theme::accent())
-            .text_color(theme::background())
+            .text_color(theme::text())
             .child(label)
     } else {
-        pill.border_color(theme::border())
+        pill.bg(theme::background())
+            .border_color(theme::border())
             .text_color(theme::text_muted())
             .hover(|style| {
                 style
@@ -1211,8 +1435,71 @@ fn choice_pill(label: impl IntoElement, selected: bool) -> Div {
     }
 }
 
-fn section_label(text: &'static str) -> Div {
-    div().text_xs().text_color(theme::text_muted()).child(text)
+fn section(title: &'static str, hint: &'static str, body: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(div().text_sm().text_color(theme::text()).child(title))
+                .child(div().text_xs().text_color(theme::text_muted()).child(hint)),
+        )
+        .child(body)
+}
+
+fn divider() -> Div {
+    div().h(px(1.0)).bg(theme::border())
+}
+
+fn stat(label: &'static str, value: String) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(div().text_xs().text_color(theme::text_muted()).child(label))
+        .child(div().text_sm().text_color(theme::text()).child(value))
+}
+
+fn keycap(label: String) -> Div {
+    div()
+        .px_5()
+        .py_3()
+        .rounded_lg()
+        .bg(theme::elevated())
+        .border_1()
+        .border_color(theme::border())
+        .text_xl()
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(theme::text())
+        .child(label)
+}
+
+fn level_bars(
+    level: f32,
+    count: usize,
+    max_height: f32,
+    width: f32,
+    phase: f32,
+    color: Rgba,
+) -> Div {
+    let amplitude = (level.sqrt() * 1.2).clamp(0.0, 1.0);
+    let bars = (0..count)
+        .map(|index| {
+            let wave = ((phase + index as f32 * 0.55).sin() * 0.5 + 0.5).powi(2);
+            let height = 4.0 + wave * (6.0 + amplitude * (max_height - 10.0));
+            div().w(px(width)).h(px(height)).rounded_full().bg(color)
+        })
+        .collect::<Vec<_>>();
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .h(px(max_height))
+        .children(bars)
 }
 
 fn model_label(path: &Path) -> String {

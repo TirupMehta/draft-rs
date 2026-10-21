@@ -9,6 +9,10 @@ use draft_engine::{ComputeBackend, Engine, EngineConfig, EngineTimings, Transcri
 
 pub struct Job {
     pub samples: Vec<f32>,
+    pub serial: u64,
+    /// A partial pass during capture: transcribed for display only, never
+    /// pasted, and always superseded by the final job.
+    pub preview: bool,
 }
 
 #[derive(Debug)]
@@ -19,6 +23,10 @@ pub enum Event {
         load_ms: u128,
     },
     Failed(String),
+    Partial {
+        text: String,
+        serial: u64,
+    },
     Transcribed {
         text: String,
         elapsed: Duration,
@@ -106,6 +114,26 @@ fn run(
     }
 
     while let Ok(job) = jobs.recv() {
+        if job.preview {
+            let text = match engine.transcribe(&job.samples, &TranscriptionOptions::default()) {
+                Ok(result) => draft_core::text::clean_text(&result.text, false),
+                Err(error) => {
+                    tracing::debug!(%error, "preview pass failed");
+                    String::new()
+                }
+            };
+            if events
+                .send(Event::Partial {
+                    text,
+                    serial: job.serial,
+                })
+                .is_err()
+            {
+                return;
+            }
+            continue;
+        }
+
         let started = Instant::now();
         match engine.transcribe(&job.samples, &TranscriptionOptions::default()) {
             Ok(result) => {

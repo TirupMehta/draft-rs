@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! Draft's desktop shell.
 //!
 //! The window is the control surface; dictation itself works while any other
@@ -24,12 +26,7 @@ use gpui::{
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    let _log_guard = init_logging();
 
     let options = parse_options();
 
@@ -49,7 +46,7 @@ fn main() -> color_eyre::Result<()> {
             )
         });
 
-        let bounds = Bounds::centered(None, size(px(760.0), px(720.0)), cx);
+        let bounds = Bounds::centered(None, size(px(820.0), px(780.0)), cx);
         let window = cx
             .open_window(
                 WindowOptions {
@@ -83,7 +80,7 @@ fn main() -> color_eyre::Result<()> {
             .ok()
             .flatten();
 
-        let hud_size = size(px(440.0), px(96.0));
+        let hud_size = size(px(520.0), px(132.0));
         let screen = cx
             .primary_display()
             .or_else(|| cx.displays().into_iter().next())
@@ -92,7 +89,7 @@ fn main() -> color_eyre::Result<()> {
         let hud_bounds = Bounds {
             origin: point(
                 screen.center().x - hud_size.center().x,
-                screen.origin.y + screen.size.height - hud_size.height - px(92.0),
+                screen.origin.y + screen.size.height - hud_size.height - px(64.0),
             ),
             size: hud_size,
         };
@@ -145,6 +142,33 @@ fn main() -> color_eyre::Result<()> {
     });
 
     Ok(())
+}
+
+/// Keep a diagnostic log next to the settings file. Release builds have no
+/// console window, so this is the only place startup and capture problems can
+/// be read afterwards.
+fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    if cfg!(debug_assertions) {
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+        return None;
+    }
+
+    let dir = draft_core::paths::data_dir().join("logs");
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        eprintln!("could not create the log folder: {error}");
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+        return None;
+    }
+    let appender = tracing_appender::rolling::daily(&dir, "draft.log");
+    let (writer, guard) = tracing_appender::non_blocking(appender);
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(writer)
+        .init();
+    Some(guard)
 }
 
 struct Options {
