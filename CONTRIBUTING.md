@@ -7,11 +7,11 @@ it fast, private, and honest.
 
 Read these first:
 
-- [AGENTS.md](AGENTS.md) — the working agreement, design system, build rules,
+- [AGENTS.md](AGENTS.md) - the working agreement, design system, build rules,
   and the hard constraints.
-- [docs/SPEC.md](docs/SPEC.md) — the product contract.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — what is actually planned.
-- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — the speed budget and method.
+- [docs/SPEC.md](docs/SPEC.md) - the product contract.
+- [docs/ROADMAP.md](docs/ROADMAP.md) - what is actually planned.
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) - the speed budget and method.
 
 Windows x64 is the supported target today. macOS and Linux are future work;
 please do not add a platform shell just to make a change compile.
@@ -19,9 +19,9 @@ please do not add a platform shell just to make a change compile.
 ## Set up the toolchain
 
 You need Rust stable, Microsoft C++ Build Tools, CMake, and the Vulkan SDK.
+Install those, then:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+```text
 cargo run -p draft-desktop
 ```
 
@@ -29,7 +29,7 @@ The app looks for the F16 model at
 `%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf`. Install or
 verify it with:
 
-```powershell
+```text
 cargo run -p draft -- model install
 cargo run -p draft -- model status
 ```
@@ -45,24 +45,23 @@ cargo run -p draft -- model status
 - No new runtime dependency, telemetry, crash reporting, or network call
   without a clear reason in the pull request. The model install (or download,
   when building without the bundled model) is the one documented exception.
-- Put test-only affordances in `tools/` or behind `debug_assertions`, never in
-  the shipped path.
+- Put test-only affordances behind `debug_assertions`, never in the shipped
+  path.
 - Update the docs when behavior, defaults, or the design rules change.
 
 ## Run the gates
 
 These are the same checks CI runs:
 
-```powershell
+```text
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --workspace --release
 ```
 
-For a UI change, also capture the rendered window with `tools/inspect` and check
-the real text positions and the dark and light palettes. A layout bug is easier
-to see in the coordinates than in a screenshot.
+For a UI change, capture the rendered window and check the text positions, clipping,
+and both the light and dark palettes.
 
 ## Pull requests
 

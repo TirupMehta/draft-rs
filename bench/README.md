@@ -21,11 +21,10 @@ Audio is not committed: it is large, personal, and easy to regenerate. Put
 Record all fixtures with the same microphone and room for a fair comparison.
 Do not commit personal audio.
 
-For a quick, reproducible latency set, generate local Windows TTS clips and trim
-them to exact durations:
+For a quick, reproducible latency set, prepare 16 kHz TTS clips and trim them to
+exact durations:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\bench\make-fixtures.ps1
+```text
 python .\bench\trim_fixtures.py
 ```
 
@@ -34,23 +33,16 @@ WER and multilingual quality.
 
 For a quick real-speech fixture, download Whisper's public-domain JFK sample:
 
-```powershell
-Invoke-WebRequest `
-  -Uri https://raw.githubusercontent.com/ggerganov/whisper.cpp/master/samples/jfk.wav `
-  -OutFile .\bench\fixtures\real-jfk.wav
+```text
+curl -L https://raw.githubusercontent.com/ggerganov/whisper.cpp/master/samples/jfk.wav -o bench\fixtures\real-jfk.wav
 ```
 
 ## Running
 
 `cargo run -p draft` runs the `draftctl` development binary:
 
-```powershell
-cargo run -p draft -- bench `
-  --model "$env:LOCALAPPDATA\Draft4\models\whisper-large-v3-turbo-F16.gguf" `
-  --backend vulkan `
-  --fixtures bench/fixtures `
-  --warmup 2 --runs 10 `
-  --json bench/results/rust.json
+```text
+cargo run -p draft -- bench --model "%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf" --backend vulkan --fixtures bench/fixtures --warmup 2 --runs 10 --json bench/results/rust.json
 ```
 
 The harness loads one model, runs the warm-up passes, then measures each clip.
@@ -63,12 +55,8 @@ The Windows engine is `transcribe.cpp` with Vulkan. Build `transcribe-cli` and
 `transcribe-bench` from a short path (for example `C:\bv`), with
 `-DTRANSCRIBE_VULKAN=ON -DTRANSCRIBE_BUILD_TOOLS=ON`, then:
 
-```powershell
-C:\bv\bin\Release\transcribe-bench.exe `
-  --model "$env:LOCALAPPDATA\Draft4\models\whisper-large-v3-turbo-F16.gguf" `
-  --sample .\bench\fixtures\tts-5s.wav `
-  --backend vulkan --device 0 --warmup 3 --iters 5 `
-  --quiet --json-out .\bench\results\vulkan-tts-5s.wav.json
+```text
+C:\bv\bin\Release\transcribe-bench.exe --model "%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf" --sample .\bench\fixtures\tts-5s.wav --backend vulkan --device 0 --warmup 3 --iters 5 --quiet --json-out .\bench\results\vulkan-tts-5s.wav.json
 
 python .\bench\compare_bakeoff.py --results-dir .\bench\results --prefix vulkan-
 ```

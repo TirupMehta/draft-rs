@@ -1,4 +1,4 @@
-# AGENTS.md — Draft (v4)
+# AGENTS.md - Draft (v4)
 
 Authoritative working notes for any agent (or person) changing this repository.
 Read this before touching code. It records the decisions that are not obvious
@@ -7,8 +7,7 @@ build, verify, install, and inspect the result.
 
 The product is described in `README.md`; the product intent is in `docs/SPEC.md`;
 the measured performance and the thermal policy are in `docs/PERFORMANCE.md`;
-the open work is in `docs/ROADMAP.md`. A full handoff brief for a fresh agent
-lives in `docs/HANDOFF.md`.
+the open work is in `docs/ROADMAP.md`.
 
 ---
 
@@ -58,32 +57,19 @@ crates/draft-paste    clipboard insert (arboard), copy_text
 crates/draft-cli      the `draftctl` binary
 apps/desktop          the GPUI 0.2.2 shell (the product UI)
 assets                app icon (draft.ico, draft-256.png) and bundled fonts
-bench                 fixtures, baseline scripts, latency measurements
-docs                  SPEC, ROADMAP, PERFORMANCE, HANDOFF
+bench                 fixtures, baseline data, latency measurements
+docs                  SPEC, ROADMAP, PERFORMANCE
 packaging/windows     Inno Setup installer script
-scripts               build-installer.ps1, setup-windows.ps1, repair-buildtools.ps1
-tools/inspect         render-inspection tooling (see §9)
+scripts               build-installer.ps1, the release installer builder
 ```
 
 ### What is not app code
 
 The shipped product is **one `draft.exe`** (plus `draftctl` for development)
-and **one `Draft-Setup-<version>.exe`** installer. Nothing in the running app
-calls PowerShell, and no script is installed with it.
-
-The `.ps1` files are developer-side only:
-
-| File | Why it exists |
-|---|---|
-| `scripts/setup-windows.ps1` | one-time toolchain setup: Rust, MSVC C++ tools, CMake, Vulkan SDK |
-| `scripts/repair-buildtools.ps1` | repairs a half-installed Visual Studio C++ workload |
-| `scripts/build-installer.ps1` | compiles `packaging/windows/draft.iss` with Inno Setup |
-| `tools/inspect/*.ps1` | renders the real window and prints it as text (see §9) |
-
-They are Windows-only because the product is Windows-only today. A
-cross-platform repository would use shell scripts or a task runner instead;
-none of that changes the shipped binary. Do not add a script for a feature —
-scripts exist for the toolchain and for verification, never for behaviour.
+and **one `Draft-Setup-<version>.exe`** installer. The only developer script is
+`scripts/build-installer.ps1`, which invokes the Inno Setup compiler to build
+that installer. The app itself never calls PowerShell, and no script is
+installed with it. Do not add a script for a feature.
 
 ### The desktop shell (`apps/desktop/src`)
 
@@ -282,7 +268,7 @@ restart. `--no-paste` on the command line turns it off for one launch.
 | Settings override | `DRAFT_SETTINGS_PATH` |
 | Model override | `DRAFT_MODEL_PATH` |
 
-The history store keeps text and duration only — never audio, never a window
+The history store keeps text and duration only - never audio, never a window
 title, never a full URL. It is bounded (retention window, entry cap, byte
 cap) and a malformed file is quarantined rather than overwritten.
 
@@ -290,7 +276,7 @@ cap) and a malformed file is quarantined rather than overwritten.
 
 ## 6. Build, test, install
 
-```powershell
+```text
 cd C:\all\draft-rs
 
 cargo fmt --all
@@ -360,39 +346,12 @@ a capture. That is the supported way to test the recording state.
 
 ---
 
-## 9. Inspecting the interface without seeing it
+## 9. Visual verification
 
-The build host cannot view images. The tooling in `tools/inspect/` renders the
-real window and reports it as text, which is how layout, spacing, contrast, and
-clipping are actually checked here:
-
-| Script | What it does |
-|---|---|
-| `tools/inspect/Inspect.cs` | pixel analysis: an ASCII luminance grid, ink bounds, best text contrast, edge-clipping check |
-| `tools/inspect/ocr.ps1` | Windows OCR: every string with its x/y, so copy and alignment can be verified |
-| `tools/inspect/capture.ps1` | capture the running window, print the grid and the OCR |
-| `tools/inspect/listen.ps1` | inject the dictation key to capture the real Listening state and the HUD |
-| `tools/inspect/Windows.cs` | the small window helpers the scripts share |
-
-```powershell
-cd C:\all\draft-rs
-.\tools\inspect\capture.ps1          # the running window
-.\tools\inspect\capture.ps1 -Start   # start Draft first
-.\tools\inspect\listen.ps1           # the recording state and the HUD
-```
-
-`listen.ps1` needs Draft to have been started with
-`DRAFT_ALLOW_INJECTED_KEYS=1`; the script starts it with that variable when
-Draft is not already running, and says so when it is.
-
-The grid uses `*` for mid tones, `#` for bright pixels, `@` for accent pixels,
-and `.` for surfaces, so a dark theme prints as mostly `.` with bright text and
-a light theme prints as mostly `#`.
-
-When a visual change is made, capture **both** views and read the OCR
-positions. A layout bug (clipped text, a control too far from its label, an
-empty region) is obvious in the coordinates even when it is not obvious in a
-screenshot.
+The repository ships no inspection scripts. For a visual change, capture the
+running window with the OS screenshot tool and check both palettes, the fixed
+680x500 surface, text clipping, and the HUD. A layout bug is easier to see in a
+screenshot than in a diff.
 
 ---
 

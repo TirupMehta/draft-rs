@@ -16,7 +16,7 @@ shells. Measured latency lives in [`PERFORMANCE.md`](PERFORMANCE.md).
 Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 `%LOCALAPPDATA%\Draft` folder is never read or overwritten.
 
-## M0 — Scaffold and proof
+## M0 - Scaffold and proof
 
 - [x] Initialize repo, MIT license, `.gitignore`, CI.
 - [x] Write the product spec and architecture.
@@ -32,7 +32,7 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [x] `cargo fmt --check`, `cargo clippy -D warnings`, and
       `cargo test --workspace` run in CI.
 
-## M1 — Dictation MVP
+## M1 - Dictation MVP
 
 - [x] Capture the Draft v3.5 speed baseline on the reference RTX 4060, using
       the same clips and the same `large-v3-turbo` model.
@@ -57,7 +57,7 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [ ] **Accuracy acceptance:** real-speech WER is within 0.5 percentage points of
       v3.5. This is the remaining release gate.
 
-## M2 — Models and streaming
+## M2 - Models and streaming
 
 - [ ] Model catalog with Parakeet Unified English and Whisper large-v3-turbo.
 - [x] Pinned Whisper artifacts (length and SHA-256), resumable download with
@@ -76,7 +76,7 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
       still unmeasured.
 - [ ] Prove the preview model does not regress final p95 by more than 2%.
 
-## M3 — Settings, history, corrections
+## M3 - Settings, history, corrections
 
 - [x] Settings window card and `settings.json` with atomic writes.
 - [x] Persist the shortcut, microphone, and model path; restore them at launch.
@@ -95,7 +95,7 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
       the tray, with a Settings > Startup toggle.
 - [ ] Optional sounds and light/dark theme.
 
-## M4 — Distribution
+## M4 - Distribution
 
 - [x] Per-user installer with Start Menu / Applications entry and clean uninstall.
       Windows ships an Inno Setup wizard under `%LOCALAPPDATA%\Programs\Draft`;
@@ -104,21 +104,21 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [ ] Clean-VM install -> update -> uninstall test.
 - [ ] Code signing when a certificate is available.
 
-## M5 — Modes and commands
+## M5 - Modes and commands
 
 - [ ] Foreground application detection on every desktop OS.
 - [ ] Per-app modes with corrections and transformations.
 - [ ] Optional local/OpenAI-compatible rewrite.
 - [ ] Voice commands: scratch that, new paragraph, send, select all.
 
-## M6 — Desktop everywhere
+## M6 - Desktop everywhere
 
 - [ ] macOS shell and Metal inference.
 - [ ] Linux shell (X11 + Wayland) and Vulkan inference.
 - [ ] One settings schema and history store across all three.
 - [ ] Platform permission and device-recovery parity.
 
-## M7 — Mobile
+## M7 - Mobile
 
 - [ ] Stable C ABI for `draft-core`.
 - [ ] iOS shell (SwiftUI) with a keyboard extension and background limits.

@@ -12,18 +12,18 @@ these projects.
 
 ## Interface
 
-**GPUI** — the native, GPU-rendered interface toolkit used by Draft.
+**GPUI** - the native, GPU-rendered interface toolkit used by Draft.
 Copyright Zed Industries. Licensed under the Apache License, Version 2.0.
 [Source](https://github.com/zed-industries/zed/tree/main/crates/gpui)
 
 ## Inference
 
-**transcribe.cpp** — the C/C++ speech-to-text engine behind Draft's local
+**transcribe.cpp** - the C/C++ speech-to-text engine behind Draft's local
 Whisper inference. The Rust bindings used here are the `transcribe-cpp` crate.
 Licensed under the MIT License.
 [Source](https://github.com/handy-computer/transcribe.cpp)
 
-**Whisper large-v3-turbo** — the speech model. Whisper is by OpenAI. The GGUF
+**Whisper large-v3-turbo** - the speech model. Whisper is by OpenAI. The GGUF
 build used by Draft is distributed by handy-computer. The model is distributed
 with Draft (or fetched once when building from source) and is subject to its own
 terms; see the model page.
@@ -32,11 +32,11 @@ terms; see the model page.
 
 ## Type
 
-**Inter** — the interface typeface, designed by Rasmus Andersson. Licensed
+**Inter** - the interface typeface, designed by Rasmus Andersson. Licensed
 under the SIL Open Font License 1.1.
 [Source](https://github.com/rsms/inter)
 
-**JetBrains Mono** — the live timer and command-line typeface, by JetBrains.
+**JetBrains Mono** - the live timer and command-line typeface, by JetBrains.
 Licensed under the SIL Open Font License 1.1.
 [Source](https://github.com/JetBrains/JetBrainsMono)
 

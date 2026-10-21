@@ -1,4 +1,4 @@
-# Draft v4 — Product Spec
+# Draft v4 - Product Spec
 
 **Status:** pre-alpha, started 2026-10-20  
 **Owner:** Tirup Mehta  
@@ -6,7 +6,7 @@
 
 ## 1. One line
 
-Hold a key, speak naturally, and watch accurate text appear at the cursor — on
+Hold a key, speak naturally, and watch accurate text appear at the cursor - on
 every device, fully local, faster than the cloud, with none of the clipboard
 gymnastics.
 
@@ -64,7 +64,7 @@ shell over the same core, not a separate product.
 | --- | --- | --- |
 | Streaming | Parakeet Unified English only, GPU only | Streaming preview for every dictation; final pass with Whisper large-v3-turbo |
 | Windows GPU | Vulkan, x64 only | Vulkan x64; CPU on ARM64; CUDA not pursued on Windows (upstream Linux-only) |
-| Clipboard | Transcript owns the clipboard for ~500 ms after paste | Configurable hold (default 0–50 ms), change-count guard, direct-type fallback |
+| Clipboard | Transcript owns the clipboard for ~500 ms after paste | Configurable hold (default 0-50 ms), change-count guard, direct-type fallback |
 | Voice commands | macOS only | Windows-first command grammar, opt-in |
 | Per-app modes | Implemented on macOS/Windows/Linux | Implemented, with a fast application picker and website rules |
 | Install size | Native app + models | Native app under ~60 MB; no Python or PyTorch |
@@ -75,7 +75,7 @@ shell over the same core, not a separate product.
 
 ## 6. Features
 
-### MVP (M1–M3)
+### MVP (M1-M3)
 
 - Resident desktop app with a native settings window and menu-bar/tray icon.
 - Hold-to-talk and toggle modes; configurable shortcut, including modifier-only
@@ -262,7 +262,7 @@ remain. M3 has settings, microphone selection, and the bounded history store,
 which the app records after each finished transcript; the pane is not wired yet.
 M4-M7 are not started.
 
-### M0 — Scaffold and proof
+### M0 - Scaffold and proof
 
 - Repo, license, CI, formatting, Clippy.
 - Rust toolchain and Windows build prerequisites documented.
@@ -270,14 +270,14 @@ M4-M7 are not started.
 - **Done when:** `cargo run -p draft` shows the window and the hook toggles a log
   line on a real Windows machine. macOS and Linux are proven in M6.
 
-### M1 — Dictation MVP
+### M1 - Dictation MVP
 
 - Hold Right Ctrl, record, transcribe with the selected model, paste at focus.
 - Escape cancels; short taps discard; clipboard is restored.
 - **Done when:** a 5-second utterance pastes correctly into Notepad, VS Code,
   and a browser, three times in a row, with the previous clipboard intact.
 
-### M2 — Models and streaming
+### M2 - Models and streaming
 
 - Model catalog with a pinned Whisper large-v3-turbo entry; resumable download
   with progress, SHA-256 verification, atomic install, status, and deletion.
@@ -286,7 +286,7 @@ M4-M7 are not started.
 - **Done when:** text appears while speaking and is replaced by the final
   transcript without flicker or double paste.
 
-### M3 — Settings, history, corrections
+### M3 - Settings, history, corrections
 
 - Settings for shortcut, microphone, model, language, paste, sounds, login.
 - History with retention, search, copy, delete, clear.
@@ -294,7 +294,7 @@ M4-M7 are not started.
 - **Done when:** a restart preserves every setting and history entry; a taught
   correction wins on the next dictation.
 
-### M4 — Distribution
+### M4 - Distribution
 
 - Windows per-user installer (Inno Setup or NSIS) with Start Menu, launch at
   login, and uninstall that keeps user data.
@@ -302,7 +302,7 @@ M4-M7 are not started.
 - macOS and Linux packaging follow their platform rules in M6.
 - **Done when:** install → update → uninstall works on a clean Windows VM.
 
-### M5 — Modes and commands
+### M5 - Modes and commands
 
 - Foreground-app detection and per-app Modes.
 - Transformations and optional rewrite.
@@ -310,7 +310,7 @@ M4-M7 are not started.
 - **Done when:** a mode for VS Code applies only in VS Code and a global mode
   applies everywhere else.
 
-### M6 — Desktop everywhere
+### M6 - Desktop everywhere
 
 - macOS shell (Metal) and Linux shell (Vulkan) over the same core.
 - Per-platform permissions, hotkeys, audio devices, paste, tray/menu bar, and
@@ -319,7 +319,7 @@ M4-M7 are not started.
   platforms and a dictation started on one platform has the same behavior on the
   others.
 
-### M7 — Mobile
+### M7 - Mobile
 
 - Stable C ABI for `draft-core` plus generated Swift and Kotlin bindings.
 - iOS keyboard extension and Android IME.
@@ -337,7 +337,7 @@ M4-M7 are not started.
 | ARM64 performance | CPU-first; benchmark before promising GPU |
 | Signing cost | Ship unsigned with clear SmartScreen guidance until a certificate exists |
 | Mobile background limits | Keep mobile in M7; design the core around explicit start/stop and a bounded capture lease |
-| Scope creep | M0–M2 ship a complete dictation loop before any mode or meeting work |
+| Scope creep | M0-M2 ship a complete dictation loop before any mode or meeting work |
 
 ## 13. Open decisions
 

@@ -334,7 +334,7 @@ mod tests {
     fn unicode_and_multiline_text_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let now = 1_700_000_000_000;
-        let text = "Héllo, 世界!\nSecond line — dash.";
+        let text = "Héllo, 世界!\nSecond line - dash.";
         {
             let mut history = store(dir.path(), HistoryPolicy::default(), now);
             history.add(text, None, now).unwrap();

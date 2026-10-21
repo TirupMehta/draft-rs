@@ -424,8 +424,8 @@ The license column is the license expression reported by each crate. The full te
 
 ## Bundled typefaces
 
-- **Inter** by Rasmus Andersson — SIL Open Font License 1.1. See `assets/fonts/Inter-OFL.txt`.
-- **JetBrains Mono** by JetBrains — SIL Open Font License 1.1. See `assets/fonts/JetBrainsMono-OFL.txt`.
+- **Inter** by Rasmus Andersson - SIL Open Font License 1.1. See `assets/fonts/Inter-OFL.txt`.
+- **JetBrains Mono** by JetBrains - SIL Open Font License 1.1. See `assets/fonts/JetBrainsMono-OFL.txt`.
 
 ## Speech model
 

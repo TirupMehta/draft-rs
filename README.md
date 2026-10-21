@@ -1,6 +1,6 @@
 # Draft
 
-**Private dictation for Windows.** Hold a key, speak, release — the words appear
+**Private dictation for Windows.** Hold a key, speak, release - the words appear
 at your cursor. The model runs on your machine.
 
 Local Whisper large-v3-turbo · Vulkan · Native Rust · No account · No telemetry
@@ -96,7 +96,7 @@ runs per clip. Decode only, before clipboard paste.
 | 15 s | **375 ms** | 1,139 ms | 3.04× |
 | 30 s | **543 ms** | 1,601 ms | 2.95× |
 | 60 s | **1,186 ms** | 3,036 ms | 2.56× |
-| JFK, 11 s | **264 ms** | — | — |
+| JFK, 11 s | **264 ms** | - | - |
 
 These numbers are a baseline, not a promise for every GPU. The full method and
 the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
@@ -121,13 +121,11 @@ build from source.
 ## Build from source
 
 Requirements: Rust stable, Microsoft C++ Build Tools, CMake, and the Vulkan SDK.
-On Windows, the setup script installs the toolchain pieces it can and tells you
-what still needs a manual step.
+Install those, then:
 
-```powershell
+```text
 git clone https://github.com/TirupMehta/draft-rs.git
 cd draft-rs
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 cargo run -p draft-desktop
 ```
 
@@ -135,7 +133,7 @@ The app looks for the F16 model at
 `%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf`. To download and
 verify it from the command line:
 
-```powershell
+```text
 cargo run -p draft -- model install
 cargo run -p draft -- model status
 ```
@@ -145,7 +143,7 @@ cargo run -p draft -- model status
 
 Run the same gates as CI before sending a change:
 
-```powershell
+```text
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -154,9 +152,10 @@ cargo build --workspace --release
 
 ### Installer
 
-Inno Setup 6 is the only extra tool:
+Inno Setup 6 is the only extra tool. The release installer builder is
+`scripts/build-installer.ps1`:
 
-```powershell
+```text
 cargo build --workspace --release
 .\scripts\build-installer.ps1
 ```
@@ -176,10 +175,10 @@ crates/draft-paste     clipboard insertion
 crates/draft-cli       the draftctl development binary
 apps/desktop           the GPUI shell (the product UI)
 assets                 app icon and bundled Inter / JetBrains Mono
-bench                  fixtures, baseline scripts, latency measurements
-docs                   specification, roadmap, performance, handoff
+bench                  fixtures, baseline data, latency measurements
+docs                   specification, roadmap, performance
 packaging/windows      the Inno Setup installer
-scripts                toolchain and release helpers
+scripts                build-installer.ps1, the release installer builder
 ```
 
 `draft-core` owns behavior that is not platform-specific. Platform crates own

@@ -23,7 +23,7 @@ def main() -> None:
     for name, seconds in TARGETS.items():
         path = root / name
         if not path.exists():
-            raise SystemExit(f"missing {path}; run make-fixtures.ps1 first")
+            raise SystemExit(f"missing {path}; add the fixture first")
         with wave.open(str(path), "rb") as source:
             params = source.getparams()
             rate = source.getframerate()
