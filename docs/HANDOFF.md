@@ -1,5 +1,10 @@
 # Draft v4 — handoff brief
 
+> **`AGENTS.md` in the repository root is the working agreement for this
+> project**: the rules, the architecture, the design tokens, the build and
+> install commands, and the inspection tooling. Read that first; this brief
+> adds the history and the reasoning behind it.
+
 Copy everything below into the next agent's prompt. It is written to be
 self-contained: paths, commands, current state, decisions, and the exact next
 steps.
