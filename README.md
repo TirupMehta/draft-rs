@@ -27,6 +27,11 @@ transcript.
 - Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
   Draft starts in the tray when you sign in; turn that off under Settings >
   Startup.
+- One seamless window: Draft draws its own title bar, so the chrome and the
+  body are a single surface with one wordmark and one hairline.
+- Settings are grouped by intent — Dictation, Audio, Recognition, Appearance,
+  Privacy, Advanced — and every control eases into place instead of jumping.
+- Light and dark themes, both designed; the system setting is the default.
 - Click-through recording HUD with a live waveform, optional partial text, and
   listening and transcribing states.
 - Preferences persist the shortcut, microphone, and model path to

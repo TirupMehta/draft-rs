@@ -7,6 +7,7 @@
 
 mod app;
 mod hud;
+mod motion;
 mod startup;
 mod theme;
 mod tray;
@@ -47,14 +48,18 @@ fn main() -> color_eyre::Result<()> {
             )
         });
 
-        let bounds = Bounds::centered(None, size(px(820.0), px(780.0)), cx);
+        let bounds = Bounds::centered(None, size(px(560.0), px(240.0)), cx);
         let window = cx
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Draft".into()),
-                        ..Default::default()
+                        // Draft draws its own title bar so the window reads as
+                        // one surface instead of a system frame stacked on
+                        // top of an application header.
+                        appears_transparent: true,
+                        traffic_light_position: None,
                     }),
                     app_id: Some("in.tirup.draft".into()),
                     show: !options.background,
@@ -84,7 +89,17 @@ fn main() -> color_eyre::Result<()> {
             .ok()
             .flatten();
 
-        let hud_size = size(px(520.0), px(132.0));
+        if let Some(hwnd) = main_hwnd {
+            // The window frame belongs to Windows. When the person picks a
+            // theme, the frame has to follow it.
+            match theme::Appearance::from_setting(&options.settings.appearance) {
+                theme::Appearance::Light => window_control::set_title_bar_dark(hwnd, false),
+                theme::Appearance::Dark => window_control::set_title_bar_dark(hwnd, true),
+                theme::Appearance::System => {}
+            }
+        }
+
+        let hud_size = size(px(600.0), px(84.0));
         let screen = cx
             .primary_display()
             .or_else(|| cx.displays().into_iter().next())

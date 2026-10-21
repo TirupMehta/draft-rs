@@ -116,6 +116,76 @@ pub fn configure_hud(hwnd: isize) {
     }
 }
 
+/// Tell Windows which appearance the native title bar should use. The window
+/// frame belongs to the operating system, so it cannot follow the interface
+/// palette on its own.
+#[cfg(target_os = "windows")]
+pub fn set_title_bar_dark(hwnd: isize, dark: bool) {
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+
+    if hwnd == 0 {
+        return;
+    }
+    let enabled: i32 = if dark { 1 } else { 0 };
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd as *mut _,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+            &enabled as *const i32 as *const std::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_title_bar_dark(_hwnd: isize, _dark: bool) {}
+
+/// Whether the system asks for animations. Windows exposes this in the
+/// accessibility settings, and an interface that respects it should not move
+/// when the person has turned motion off.
+#[cfg(target_os = "windows")]
+pub fn system_animations_enabled() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+    };
+
+    let mut enabled: i32 = 0;
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            &mut enabled as *mut i32 as *mut _,
+            0,
+        );
+    }
+    enabled != 0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn system_animations_enabled() -> bool {
+    true
+}
+
+/// Maximize or restore a window that draws its own title bar.
+#[cfg(target_os = "windows")]
+pub fn toggle_maximize(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IsZoomed, SW_MAXIMIZE, SW_RESTORE, ShowWindowAsync,
+    };
+
+    if hwnd == 0 {
+        return;
+    }
+    let hwnd = hwnd as *mut _;
+    let zoomed = unsafe { IsZoomed(hwnd) } != 0;
+    unsafe {
+        ShowWindowAsync(hwnd, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn toggle_maximize(_hwnd: isize) {}
+
 #[cfg(not(target_os = "windows"))]
 pub fn hwnd(_window: &Window) -> Option<isize> {
     None

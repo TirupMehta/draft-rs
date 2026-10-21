@@ -13,6 +13,8 @@ pub struct Job {
     /// A partial pass during capture: transcribed for display only, never
     /// pasted, and always superseded by the final job.
     pub preview: bool,
+    /// Whether this transcript is inserted at the cursor when it is ready.
+    pub paste: bool,
 }
 
 #[derive(Debug)]
@@ -43,29 +45,19 @@ pub enum Event {
     },
 }
 
-pub fn spawn(
-    model: PathBuf,
-    backend: ComputeBackend,
-    paste: bool,
-) -> (Sender<Job>, Receiver<Event>) {
+pub fn spawn(model: PathBuf, backend: ComputeBackend) -> (Sender<Job>, Receiver<Event>) {
     let (job_sender, job_receiver) = channel();
     let (event_sender, event_receiver) = channel();
 
     std::thread::Builder::new()
         .name("draft-engine".to_owned())
-        .spawn(move || run(model, backend, paste, job_receiver, event_sender))
+        .spawn(move || run(model, backend, job_receiver, event_sender))
         .expect("spawn the Draft engine thread");
 
     (job_sender, event_receiver)
 }
 
-fn run(
-    model: PathBuf,
-    backend: ComputeBackend,
-    paste: bool,
-    jobs: Receiver<Job>,
-    events: Sender<Event>,
-) {
+fn run(model: PathBuf, backend: ComputeBackend, jobs: Receiver<Job>, events: Sender<Event>) {
     if !model.exists() {
         let _ = events.send(Event::Failed(format!(
             "Model not found at {}. Download it with `draftctl model install`, or pass --model.",
@@ -168,7 +160,7 @@ fn run(
                     continue;
                 }
 
-                let paste_error = if paste {
+                let paste_error = if job.paste {
                     draft_paste::paste_text(&draft_core::text::for_paste(&cleaned))
                         .err()
                         .map(|error| format!("{error:#}"))

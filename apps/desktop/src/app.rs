@@ -1,6 +1,7 @@
 //! The one Draft window: live state, the dictation loop, and the engine
 //! hand-off. The model lives on its own thread; this view only polls events.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -10,13 +11,14 @@ use draft_core::settings::Settings;
 use draft_engine::{ComputeBackend, EngineTimings};
 use draft_hotkey::{HotkeyConfig, HotkeyEvent, HotkeyListener};
 use gpui::{
-    AnyElement, AnyWindowHandle, Context, Div, Entity, IntoElement, Render, Rgba, Window, div,
-    prelude::*, px,
+    AnyElement, AnyWindowHandle, Context, Div, Entity, IntoElement, Render, Rgba, Stateful,
+    WeakEntity, Window, WindowAppearance, WindowControlArea, div, prelude::*, px, size,
 };
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
 
 use crate::hud::{DraftHud, HudSnapshot};
+use crate::motion::Motion;
 use crate::startup;
 use crate::theme;
 use crate::tray;
@@ -31,6 +33,42 @@ const HOTKEYS: [&str; 6] = [
     "pause",
     "scroll-lock",
 ];
+/// Stable names for the controls that ease. A control is identified by a
+/// static key so the animation state survives a repaint.
+const HOTKEY_KEYS: [&str; 6] = [
+    "chip:hotkey:0",
+    "chip:hotkey:1",
+    "chip:hotkey:2",
+    "chip:hotkey:3",
+    "chip:hotkey:4",
+    "chip:hotkey:5",
+];
+const MICROPHONE_KEYS: [&str; 8] = [
+    "chip:microphone:0",
+    "chip:microphone:1",
+    "chip:microphone:2",
+    "chip:microphone:3",
+    "chip:microphone:4",
+    "chip:microphone:5",
+    "chip:microphone:6",
+    "chip:microphone:7",
+];
+const SECTION_KEYS: [&str; 6] = [
+    "section:0",
+    "section:1",
+    "section:2",
+    "section:3",
+    "section:4",
+    "section:5",
+];
+const SECTION_HOVER_KEYS: [&str; 6] = [
+    "section-hover:0",
+    "section-hover:1",
+    "section-hover:2",
+    "section-hover:3",
+    "section-hover:4",
+    "section-hover:5",
+];
 const LEVEL_TEST_LENGTH: Duration = Duration::from_secs(4);
 /// The shortest gap between preview passes. A preview is display-only, so a
 /// little less freshness is a good trade for a much lower, steadier GPU load.
@@ -43,6 +81,9 @@ const HUD_INTERVAL: Duration = Duration::from_millis(66);
 /// Cap repaints of the visible main window while its level meter is moving.
 /// The event poll stays faster than this so a hotkey release is not delayed.
 const UI_INTERVAL: Duration = Duration::from_millis(33);
+/// Level samples kept for the recording meter. The app only knows the current
+/// microphone level, so this is a real amplitude history and nothing more.
+const ENVELOPE_SAMPLES: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -51,6 +92,92 @@ enum Phase {
     Listening,
     Transcribing,
     Error,
+}
+
+/// What the window is showing. The everyday surface is small; configuration
+/// gets its own, larger layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    Dictate,
+    Settings,
+}
+
+/// Settings are grouped by intent, not by implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Dictation,
+    Audio,
+    Recognition,
+    Appearance,
+    Privacy,
+    Advanced,
+}
+
+impl Section {
+    fn title(self) -> &'static str {
+        match self {
+            Section::Dictation => "Dictation",
+            Section::Audio => "Audio",
+            Section::Recognition => "Recognition",
+            Section::Appearance => "Appearance",
+            Section::Privacy => "Privacy",
+            Section::Advanced => "Advanced",
+        }
+    }
+
+    fn summary(self) -> &'static str {
+        match self {
+            Section::Dictation => "How a dictation starts, ends, and reaches the page.",
+            Section::Audio => "Which microphone Draft listens to.",
+            Section::Recognition => "The model that turns speech into text.",
+            Section::Appearance => "How Draft looks on this screen.",
+            Section::Privacy => "What stays on this device, and the one exception.",
+            Section::Advanced => "Diagnostics, storage, and the command line.",
+        }
+    }
+
+    fn all() -> [Section; 6] {
+        [
+            Section::Dictation,
+            Section::Audio,
+            Section::Recognition,
+            Section::Appearance,
+            Section::Privacy,
+            Section::Advanced,
+        ]
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Section::Dictation => 0,
+            Section::Audio => 1,
+            Section::Recognition => 2,
+            Section::Appearance => 3,
+            Section::Privacy => 4,
+            Section::Advanced => 5,
+        }
+    }
+}
+
+/// The cross-fade between the everyday view and the settings view. The
+/// window changes size in the middle of the fade, where nothing is visible,
+/// so the change of layout never arrives as a jump.
+struct ViewTransition {
+    from: View,
+    to: View,
+    started: Instant,
+    swapped: bool,
+}
+
+const FADE_OUT: Duration = Duration::from_millis(70);
+const FADE_IN: Duration = Duration::from_millis(140);
+
+/// The size of each view.
+fn view_size(view: View) -> (f32, f32) {
+    match view {
+        View::Dictate => (560.0, 240.0),
+        View::Settings => (680.0, 500.0),
+    }
 }
 
 struct LastResult {
@@ -99,6 +226,10 @@ pub struct DraftApp {
     model: PathBuf,
     settings: Settings,
     settings_path: PathBuf,
+    /// Whether finished transcripts are inserted at the cursor. A command line
+    /// flag can turn it off for one launch; the settings switch owns it after
+    /// that.
+    paste_enabled: bool,
     history: Option<draft_core::history::History>,
     hud: Entity<DraftHud>,
     hud_snapshot: Option<HudSnapshot>,
@@ -110,6 +241,20 @@ pub struct DraftApp {
     main_hwnd: Option<isize>,
     tray: Option<TrayIcon>,
     clock: Instant,
+    view: View,
+    section: Section,
+    /// A short history of the real microphone level. It is the only waveform
+    /// data Draft has, so the interface never invents one.
+    envelope: VecDeque<f32>,
+    /// When the last transcript was inserted, so the confirmation stays true.
+    pasted_at: Option<Instant>,
+    /// The palette in use. The HUD needs it outside a render pass, so the
+    /// last resolved palette is kept here.
+    palette: theme::Palette,
+    /// Every control that eases instead of snapping.
+    motion: Motion,
+    /// The cross-fade between the two views, when one is running.
+    transition: Option<ViewTransition>,
 }
 
 impl DraftApp {
@@ -150,7 +295,7 @@ impl DraftApp {
         }
 
         let model_display = model.clone();
-        let (jobs, worker_events) = worker::spawn(model, backend, paste);
+        let (jobs, worker_events) = worker::spawn(model, backend);
         let hotkey_label = hotkey.name.to_owned();
         let tray = match tray::build(&hotkey_label) {
             Ok(tray) => Some(tray),
@@ -222,6 +367,7 @@ impl DraftApp {
             model: model_display,
             settings,
             settings_path,
+            paste_enabled: paste,
             history,
             hud,
             hud_snapshot: None,
@@ -233,6 +379,17 @@ impl DraftApp {
             main_hwnd: None,
             tray,
             clock: Instant::now(),
+            view: View::Dictate,
+            section: Section::Dictation,
+            envelope: VecDeque::new(),
+            pasted_at: None,
+            palette: theme::Palette::dark(),
+            motion: Motion::new(if window_control::system_animations_enabled() {
+                std::time::Duration::from_millis(150)
+            } else {
+                std::time::Duration::ZERO
+            }),
+            transition: None,
         }
     }
 
@@ -319,10 +476,58 @@ impl DraftApp {
         let state_changed = changed;
         let ui_due = state_changed || self.ui_at.elapsed() >= UI_INTERVAL;
         let main_visible = self.main_hwnd.is_none_or(window_control::is_visible);
+        if self.recorder.is_some() {
+            // Keep a short history of the real microphone level. It is the
+            // only waveform data Draft has, and it costs one number per poll.
+            self.envelope.push_back(self.input_level());
+            while self.envelope.len() > ENVELOPE_SAMPLES {
+                self.envelope.pop_front();
+            }
+        }
         if (self.recorder.is_some() || self.level_test.is_some()) && main_visible {
             // Keep the visible window's level meter moving while audio is
             // open. When Draft is hidden in the tray, the HUD is the only
             // thing that needs a repaint.
+            changed = true;
+        }
+        if self.pending_jobs > 0 && main_visible {
+            // Inference is short. The window says it is working, so the state
+            // animates while the model runs.
+            changed = true;
+        }
+        // The view cross-fade: fade out, swap and resize while nothing is
+        // visible, then fade the new view in.
+        let mut swap_view = false;
+        if let Some(transition) = self.transition.as_ref() {
+            if transition.swapped {
+                if transition.started.elapsed() >= FADE_IN {
+                    self.transition = None;
+                }
+            } else if transition.started.elapsed() >= FADE_OUT {
+                swap_view = true;
+            }
+        }
+        if swap_view {
+            if let Some(target) = self.transition.as_ref().map(|transition| transition.to) {
+                if let Some(transition) = self.transition.as_mut() {
+                    transition.swapped = true;
+                    transition.started = Instant::now();
+                }
+                self.view = target;
+                // The window is resized through the framework, so the drawing
+                // surface follows it. It happens while nothing is visible.
+                let (width, height) = view_size(target);
+                if let Some(handle) = self.main_window {
+                    let _ = handle.update(cx, |_, window, _| {
+                        window.resize(size(px(width), px(height)));
+                    });
+                }
+            }
+        }
+        if self.transition.is_some() {
+            changed = true;
+        }
+        if self.motion.advance() {
             changed = true;
         }
         self.maybe_preview();
@@ -592,8 +797,9 @@ impl DraftApp {
                 &self.hotkey_label,
                 self.partial.clone(),
                 self.input_level(),
+                self.palette,
             )),
-            Phase::Transcribing => Some(HudSnapshot::transcribing()),
+            Phase::Transcribing => Some(HudSnapshot::transcribing(self.palette)),
             Phase::Loading | Phase::Ready | Phase::Error => None,
         };
         if snapshot == self.hud_snapshot {
@@ -648,6 +854,7 @@ impl DraftApp {
             samples: recording.samples,
             serial: self.serial,
             preview: true,
+            paste: false,
         };
         if self.jobs.send(job).is_ok() {
             self.preview_pending = true;
@@ -730,6 +937,13 @@ impl DraftApp {
                     _timings: timings,
                     paste_error,
                 });
+                if self
+                    .last
+                    .as_ref()
+                    .is_some_and(|last| last.paste_error.is_none())
+                {
+                    self.pasted_at = Some(Instant::now());
+                }
                 self.partial = None;
                 self.notice = None;
                 self.refresh_phase();
@@ -776,6 +990,7 @@ impl DraftApp {
         self.preview_at = Instant::now();
         self.preview_delay = PREVIEW_BASE_DELAY;
         self.serial = self.serial.wrapping_add(1);
+        self.envelope.clear();
         // A level check holds the microphone open. A real dictation takes over
         // that stream instead of waiting for the check to expire.
         self.level_test = None;
@@ -817,6 +1032,7 @@ impl DraftApp {
                     samples: recording.samples,
                     serial: self.serial,
                     preview: false,
+                    paste: self.paste_enabled,
                 };
                 if self.jobs.send(job).is_err() {
                     self.error = Some("The engine worker stopped.".to_owned());
@@ -860,707 +1076,1551 @@ impl DraftApp {
         };
     }
 
-    fn status(&self) -> (&'static str, String, Rgba) {
-        match self.phase {
-            Phase::Loading => (
-                "Loading model",
-                "The local model is preparing. Dictation starts when it is ready.".to_owned(),
-                theme::accent(),
-            ),
-            Phase::Ready => (
-                "Ready",
-                format!(
-                    "Hold {} and speak. Release to paste at the cursor.",
-                    self.hotkey_label
-                ),
-                theme::success(),
-            ),
-            Phase::Listening => (
-                "Listening",
-                format!(
-                    "Release {} to transcribe. Escape cancels.",
-                    self.hotkey_label
-                ),
-                theme::accent(),
-            ),
-            Phase::Transcribing => (
-                "Transcribing",
-                "The local model is turning your speech into text.".to_owned(),
-                theme::accent(),
-            ),
-            Phase::Error => (
-                "Needs attention",
-                self.error
-                    .clone()
-                    .unwrap_or_else(|| "Something went wrong.".to_owned()),
-                theme::danger(),
-            ),
+    /// The palette for this frame. In `System` mode the window follows the
+    /// operating system, including live system changes.
+    fn palette_for(&self, window: &Window) -> theme::Palette {
+        match theme::Appearance::from_setting(&self.settings.appearance) {
+            theme::Appearance::Light => theme::Palette::light(),
+            theme::Appearance::Dark => theme::Palette::dark(),
+            theme::Appearance::System => match window.appearance() {
+                WindowAppearance::Light | WindowAppearance::VibrantLight => theme::Palette::light(),
+                _ => theme::Palette::dark(),
+            },
         }
+    }
+
+    fn set_view(&mut self, view: View, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.view == view || self.transition.is_some() {
+            return;
+        }
+        // The old view fades out, the window changes size while nothing is
+        // visible, and the new view fades in. Nothing lands as a jump.
+        self.transition = Some(ViewTransition {
+            from: self.view,
+            to: view,
+            started: Instant::now(),
+            swapped: false,
+        });
+        self.motion.set_hover(
+            "view:dictate",
+            if view == View::Dictate { 1.0 } else { 0.0 },
+        );
+        self.motion.set_hover(
+            "view:settings",
+            if view == View::Settings { 1.0 } else { 0.0 },
+        );
+        cx.notify();
+    }
+
+    fn set_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        if self.section == section {
+            return;
+        }
+        self.section = section;
+        for (index, key) in SECTION_KEYS.iter().enumerate() {
+            let selected = index == section.index();
+            self.motion.set_hover(key, if selected { 1.0 } else { 0.0 });
+        }
+        self.motion.restart("section:fade", 1.0);
+        cx.notify();
+    }
+
+    fn open_section(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
+        self.section = section;
+        self.set_view(View::Settings, window, cx);
+    }
+
+    fn set_appearance(
+        &mut self,
+        appearance: theme::Appearance,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.appearance == appearance.id() {
+            return;
+        }
+        self.settings.appearance = appearance.id().to_owned();
+        self.save_settings();
+        // The native title bar belongs to Windows, so it has to be told which
+        // appearance the content uses.
+        let dark = match appearance {
+            theme::Appearance::Dark => true,
+            theme::Appearance::Light => false,
+            theme::Appearance::System => matches!(
+                window.appearance(),
+                WindowAppearance::Dark | WindowAppearance::VibrantDark
+            ),
+        };
+        if let Some(hwnd) = self.main_hwnd {
+            window_control::set_title_bar_dark(hwnd, dark);
+        }
+        cx.notify();
+    }
+
+    fn set_paste(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.paste == enabled {
+            return;
+        }
+        self.settings.paste = enabled;
+        self.paste_enabled = enabled;
+        self.save_settings();
+        self.notice = Some(if enabled {
+            "Transcripts are pasted at the cursor.".to_owned()
+        } else {
+            "Transcripts stay in Draft. Use Paste last to insert one.".to_owned()
+        });
+        cx.notify();
+    }
+
+    fn copy_last(&mut self, cx: &mut Context<Self>) {
+        let Some(last) = self.last.as_ref() else {
+            self.notice = Some("No completed dictation yet.".to_owned());
+            cx.notify();
+            return;
+        };
+        let text = last.text.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = draft_paste::copy_text(&text) {
+                tracing::warn!(%error, "could not copy the last dictation");
+            }
+        });
+        self.notice = Some("Copied to the clipboard.".to_owned());
+        cx.notify();
+    }
+
+    fn clear_history(&mut self, cx: &mut Context<Self>) {
+        let Some(history) = self.history.as_mut() else {
+            self.notice = Some("Local history is unavailable.".to_owned());
+            cx.notify();
+            return;
+        };
+        match history.clear() {
+            Ok(()) => self.notice = Some("Local history cleared.".to_owned()),
+            Err(error) => {
+                self.notice = Some(format!("Could not clear the history: {error:#}"));
+            }
+        }
+        cx.notify();
+    }
+
+    fn open_data_folder(&mut self, cx: &mut Context<Self>) {
+        open_in_file_manager(&draft_core::paths::data_dir());
+        self.notice = Some("Opened the Draft data folder.".to_owned());
+        cx.notify();
+    }
+
+    fn open_model_folder(&mut self, cx: &mut Context<Self>) {
+        if let Some(parent) = self.model.parent() {
+            open_in_file_manager(parent);
+        }
+        cx.notify();
+    }
+
+    fn open_logs_folder(&mut self, cx: &mut Context<Self>) {
+        open_in_file_manager(&draft_core::paths::data_dir().join("logs"));
+        self.notice = Some("Opened the Draft log folder.".to_owned());
+        cx.notify();
     }
 }
 
-impl Render for DraftApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (status, detail, color) = self.status();
-        let engine = engine_label(self.backend.as_deref(), self.device.as_deref());
-        let model_name = model_label(&self.model);
-        let model_detail = model_quantization(&self.model);
-        let model_path = self.model.display().to_string();
-        let microphone_label = match &self.microphone {
-            Some(name) => microphone_display(name),
-            None => match &self.default_microphone {
-                Some(name) => format!("System default · {}", microphone_display(name)),
-                None => "System default".to_owned(),
-            },
-        };
-        let level = self.input_level();
-        let level_fill = (level.sqrt() * 1.25).clamp(0.0, 1.0);
-        let testing = self.level_test.is_some();
-        let phase = self.clock.elapsed().as_secs_f32() * 7.0;
+impl DraftApp {
+    /// The everyday surface. One focal state, one line of guidance, and
+    /// nothing else competing for attention.
+    fn dictate_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let state = self.state_block(palette, cx);
+        let mut below = div().flex().flex_col().gap(px(theme::space::SM)).w_full();
+        if let Some(last) = &self.last {
+            below = below.child(self.result_block(palette, last, cx));
+        }
+        if let Some(notice) = &self.notice {
+            below = below.child(
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .text_color(palette.tertiary)
+                    .child(notice.clone()),
+            );
+        }
 
-        let hotkey_pills = HOTKEYS
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(self.title_bar(palette, cx))
+            .child(div().h(px(1.0)).bg(palette.hairline))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .px(px(theme::space::XL))
+                    .py(px(theme::space::LG))
+                    .gap(px(theme::space::LG))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .flex()
+                            .flex_col()
+                            .justify_center()
+                            .child(state),
+                    )
+                    .child(below)
+                    .child(self.footer(palette)),
+            )
+    }
+
+    /// The one thing the window is saying right now.
+    fn state_block(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let mut parts: Vec<AnyElement> = Vec::new();
+        match self.phase {
+            Phase::Loading => {
+                parts.push(headline("Warming the model", palette.text).into_any_element());
+                parts.push(
+                    secondary(
+                        palette,
+                        "The local model loads once and stays ready on this device.",
+                    )
+                    .into_any_element(),
+                );
+            }
+            Phase::Ready => {
+                parts.push(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(theme::space::SM))
+                        .child(headline("Hold", palette.text))
+                        .child(keycap(palette, &self.hotkey_label))
+                        .child(headline("and speak", palette.text))
+                        .into_any_element(),
+                );
+                parts
+                    .push(secondary(palette, "Release to paste at the cursor.").into_any_element());
+            }
+            Phase::Listening => {
+                parts.push(headline("Listening", palette.accent_text).into_any_element());
+                if let Some(partial) = self.partial.as_deref() {
+                    parts.push(
+                        div()
+                            .text_size(px(theme::type_size::TITLE))
+                            .text_color(palette.text)
+                            .line_height(px(22.0))
+                            .child(partial_preview(partial))
+                            .into_any_element(),
+                    );
+                }
+                parts.push(self.meter(palette).into_any_element());
+                parts.push(
+                    secondary(
+                        palette,
+                        &format!(
+                            "Release {} to transcribe · Esc to cancel",
+                            self.hotkey_label
+                        ),
+                    )
+                    .into_any_element(),
+                );
+            }
+            Phase::Transcribing => {
+                parts.push(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(theme::space::SM))
+                        .child(headline("Transcribing", palette.text))
+                        .child(self.ellipsis(palette))
+                        .into_any_element(),
+                );
+                parts.push(secondary(palette, "Finishing on this device.").into_any_element());
+            }
+            Phase::Error => {
+                parts
+                    .push(headline("Something needs attention", palette.danger).into_any_element());
+                parts.push(
+                    secondary(
+                        palette,
+                        &preview(
+                            self.error
+                                .as_deref()
+                                .unwrap_or("Draft could not start dictation."),
+                        ),
+                    )
+                    .into_any_element(),
+                );
+                parts.push(
+                    div()
+                        .id("error-audio-settings")
+                        .text_size(px(theme::type_size::BODY))
+                        .text_color(palette.accent_text)
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(palette.text))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_section(Section::Audio, window, cx)
+                        }))
+                        .child("Open audio settings")
+                        .into_any_element(),
+                );
+            }
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(theme::space::MD))
+            .items_start()
+            .children(parts)
+    }
+
+    /// The last transcript. It is the confirmation: the text is what was
+    /// inserted, and the line under it says when.
+    fn result_block(
+        &self,
+        palette: &theme::Palette,
+        last: &LastResult,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let mut block = div()
+            .flex()
+            .flex_col()
+            .gap(px(theme::space::SM))
+            .w_full()
+            .child(div().h(px(1.0)).bg(palette.hairline))
+            .child(
+                div()
+                    .text_size(px(theme::type_size::BODY))
+                    .line_height(px(19.0))
+                    .text_color(palette.text)
+                    .h(px(38.0))
+                    .overflow_hidden()
+                    .child(preview(&last.text)),
+            );
+        if let Some(error) = &last.paste_error {
+            block = block.child(
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .text_color(palette.danger)
+                    .child(format!("Could not paste: {error}")),
+            );
+        } else {
+            let when = match self.pasted_at {
+                Some(at) => pasted_ago(at),
+                None => "Transcript ready".to_owned(),
+            };
+            block = block.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(theme::space::MD))
+                    .child(
+                        div()
+                            .text_size(px(theme::type_size::META))
+                            .text_color(palette.tertiary)
+                            .child(when),
+                    )
+                    .child(
+                        div()
+                            .id("copy-last")
+                            .text_size(px(theme::type_size::META))
+                            .text_color(palette.secondary)
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(palette.text))
+                            .on_click(cx.listener(|this, _, _, cx| this.copy_last(cx)))
+                            .child("Copy"),
+                    ),
+            );
+        }
+        block
+    }
+
+    /// The real microphone level over the last few seconds. Draft only knows
+    /// one number, so this is an amplitude history and not a drawn wave.
+    fn meter(&self, palette: &theme::Palette) -> Div {
+        let taken: Vec<f32> = self
+            .envelope
             .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
+            .rev()
+            .take(ENVELOPE_SAMPLES)
+            .rev()
+            .copied()
+            .collect();
+        let mut samples = vec![0.0_f32; ENVELOPE_SAMPLES];
+        let offset = ENVELOPE_SAMPLES - taken.len();
+        samples[offset..].copy_from_slice(&taken);
+
+        let bars = samples.into_iter().map(|level| {
+            let amplitude = (level.sqrt() * 1.15).clamp(0.0, 1.0);
+            let height = 2.0 + amplitude * 26.0;
+            div()
+                .w(px(3.0))
+                .h(px(height))
+                .rounded_full()
+                .bg(if amplitude > 0.02 {
+                    palette.accent
+                } else {
+                    palette.track
+                })
+        });
+        div()
+            .flex()
+            .items_end()
+            .gap(px(3.0))
+            .h(px(30.0))
+            .children(bars)
+    }
+
+    /// A quiet sign that work is happening. It never claims a percentage.
+    fn ellipsis(&self, palette: &theme::Palette) -> Div {
+        let phase = self.clock.elapsed().as_secs_f32() * 2.6;
+        let dots = (0..3).map(|index| {
+            let wave = ((phase - index as f32 * 0.3).sin() * 0.5 + 0.5).powi(2);
+            div()
+                .w(px(4.0))
+                .h(px(4.0))
+                .rounded_full()
+                .bg(if wave > 0.45 {
+                    palette.secondary
+                } else {
+                    palette.tertiary
+                })
+        });
+        div().flex().items_center().gap(px(3.0)).children(dots)
+    }
+
+    /// The window's own title bar. Draft draws it inside the window so the
+    /// chrome and the body are one surface, instead of a system frame stacked
+    /// on top of an application header.
+    fn title_bar(&self, palette: &theme::Palette, cx: &mut Context<Self>) -> impl IntoElement {
+        let app = cx.entity().downgrade();
+        div()
+            .id("title-bar")
+            .h(px(44.0))
+            .flex()
+            .items_center()
+            .justify_between()
+            .px(px(theme::space::SM))
+            .pl(px(theme::space::LG))
+            .child(
+                div()
+                    .id("title-bar-brand")
+                    .flex()
+                    .items_center()
+                    .gap(px(theme::space::SM))
+                    .window_control_area(WindowControlArea::Drag)
+                    .child(brand_mark(palette, 16.0))
+                    .child(
+                        div()
+                            .font_family(theme::display_font())
+                            .text_size(px(theme::type_size::BODY))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(palette.text)
+                            .child("Draft"),
+                    ),
+            )
+            .child(
+                div()
+                    .id("title-bar-drag")
+                    .flex_1()
+                    .h_full()
+                    .window_control_area(WindowControlArea::Drag),
+            )
+            .child(self.view_control(&app, palette, cx))
+            .child(self.window_buttons(&app, palette, cx))
+    }
+
+    /// The everyday view and the settings view, as one control.
+    /// A selectable option. Selection is a quiet wash, hover eases in, and a
+    /// press settles it a little darker.
+    fn chip(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        key: &'static str,
+        label: impl IntoElement,
+        selected: bool,
+    ) -> Stateful<Div> {
+        let hover = self.motion.hover(key);
+        let press = self.motion.press(key);
+        let resting = if selected {
+            palette.accent_soft
+        } else {
+            theme::transparent()
+        };
+        let hovered = if selected {
+            theme::mix(palette.accent_soft, palette.raised_hover, 0.65)
+        } else {
+            palette.raised_hover
+        };
+        let resting_text = if selected {
+            palette.text
+        } else {
+            palette.secondary
+        };
+        let background = theme::mix(resting, hovered, hover);
+        let background = theme::mix(background, palette.canvas, press * 0.45);
+        let element = div()
+            .id(key)
+            .px(px(10.0))
+            .py(px(5.0))
+            .rounded_md()
+            .bg(background)
+            .text_size(px(theme::type_size::SMALL))
+            .text_color(theme::mix(resting_text, palette.text, hover))
+            .cursor_pointer()
+            .child(label);
+        pressable(app.clone(), key, hoverable(app.clone(), key, element))
+    }
+
+    /// A quiet text action, such as "Copy", "Open", or "Test".
+    fn text_button(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        key: &'static str,
+        label: impl IntoElement,
+    ) -> Stateful<Div> {
+        let hover = self.motion.hover(key);
+        let press = self.motion.press(key);
+        let background = theme::mix(theme::transparent(), palette.raised_hover, hover);
+        let background = theme::mix(background, palette.canvas, press * 0.45);
+        let element = div()
+            .id(key)
+            .px(px(8.0))
+            .py(px(4.0))
+            .rounded_md()
+            .bg(background)
+            .text_size(px(theme::type_size::SMALL))
+            .text_color(theme::mix(palette.secondary, palette.text, hover))
+            .cursor_pointer()
+            .child(label);
+        pressable(app.clone(), key, hoverable(app.clone(), key, element))
+    }
+
+    /// A switch. The knob is the only part that moves.
+    fn toggle(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        key: &'static str,
+        checked: bool,
+    ) -> Stateful<Div> {
+        let hover = self.motion.hover(key);
+        let press = self.motion.press(key);
+        let track = if checked {
+            palette.accent
+        } else {
+            theme::mix(palette.raised, palette.raised_hover, hover)
+        };
+        let track = theme::mix(track, palette.canvas, press * 0.35);
+        let knob = if checked {
+            theme::white()
+        } else {
+            theme::mix(palette.tertiary, palette.secondary, hover)
+        };
+        let element = div()
+            .id(key)
+            .w(px(38.0))
+            .h(px(22.0))
+            .rounded_full()
+            .bg(track)
+            .border_1()
+            .border_color(if checked {
+                palette.accent
+            } else {
+                palette.hairline
+            })
+            .flex()
+            .items_center()
+            .px(px(3.0))
+            .cursor_pointer()
+            .child(div().w(px(16.0)).h(px(16.0)).rounded_full().bg(knob));
+        let element = if checked {
+            element.justify_end()
+        } else {
+            element.justify_start()
+        };
+        pressable(app.clone(), key, hoverable(app.clone(), key, element))
+    }
+    fn view_control(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(2.0))
+            .p(px(2.0))
+            .rounded_md()
+            .bg(palette.raised)
+            .child(self.view_tab(app, palette, View::Dictate, cx))
+            .child(self.view_tab(app, palette, View::Settings, cx))
+    }
+
+    /// Minimize, maximize, and close. Close hides Draft to the tray, which is
+    /// what the system frame used to do.
+    fn window_buttons(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let minimize = div()
+            .id("window-minimize")
+            .w(px(34.0))
+            .h(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme::mix(
+                theme::transparent(),
+                palette.raised_hover,
+                self.motion.hover("window:minimize"),
+            ))
+            .cursor_pointer()
+            .on_click(cx.listener(|_, _, window, _| {
+                window.minimize_window();
+            }))
+            .child(div().w(px(10.0)).h(px(1.0)).bg(theme::mix(
+                palette.secondary,
+                palette.text,
+                self.motion.hover("window:minimize"),
+            )));
+
+        let maximize = div()
+            .id("window-maximize")
+            .w(px(34.0))
+            .h(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme::mix(
+                theme::transparent(),
+                palette.raised_hover,
+                self.motion.hover("window:maximize"),
+            ))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, _| {
+                if let Some(hwnd) = this.main_hwnd {
+                    window_control::toggle_maximize(hwnd);
+                }
+            }))
+            .child(
+                div()
+                    .w(px(10.0))
+                    .h(px(10.0))
+                    .border_1()
+                    .border_color(theme::mix(
+                        palette.secondary,
+                        palette.text,
+                        self.motion.hover("window:maximize"),
+                    )),
+            );
+
+        let close_hover = self.motion.hover("window:close");
+        let close = div()
+            .id("window-close")
+            .w(px(34.0))
+            .h(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme::mix(
+                theme::transparent(),
+                palette.danger,
+                close_hover,
+            ))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, window, cx| {
+                if this.tray.is_some() {
+                    window_control::hide(window);
+                } else {
+                    cx.quit();
+                }
+            }))
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .line_height(px(13.0))
+                    .text_color(theme::mix(palette.secondary, theme::white(), close_hover))
+                    .child("✕"),
+            );
+
+        div()
+            .flex()
+            .items_center()
+            .child(hoverable(
+                app.clone(),
+                "window:minimize",
+                pressable(app.clone(), "window:minimize", minimize),
+            ))
+            .child(hoverable(
+                app.clone(),
+                "window:maximize",
+                pressable(app.clone(), "window:maximize", maximize),
+            ))
+            .child(hoverable(
+                app.clone(),
+                "window:close",
+                pressable(app.clone(), "window:close", close),
+            ))
+    }
+
+    fn view_tab(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        view: View,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (selection_key, hover_key, label) = match view {
+            View::Dictate => ("view:dictate", "tab:dictate", "Dictate"),
+            View::Settings => ("view:settings", "tab:settings", "Settings"),
+        };
+        let selected = self.motion.hover(selection_key);
+        let hover = self.motion.hover(hover_key);
+        let element = div()
+            .id((
+                "view-tab",
+                if view == View::Dictate {
+                    0usize
+                } else {
+                    1usize
+                },
+            ))
+            .px(px(12.0))
+            .py(px(5.0))
+            .rounded_sm()
+            .bg(theme::mix(
+                theme::transparent(),
+                palette.raised_hover,
+                selected.max(hover * 0.5),
+            ))
+            .text_size(px(theme::type_size::SMALL))
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .text_color(theme::mix(
+                palette.secondary,
+                palette.text,
+                selected.max(hover),
+            ))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, window, cx| this.set_view(view, window, cx)))
+            .child(label);
+        pressable(
+            app.clone(),
+            hover_key,
+            hoverable(app.clone(), hover_key, element),
+        )
+    }
+    fn footer(&self, palette: &theme::Palette) -> Div {
+        let engine = if self.engine_ready {
+            engine_label(self.backend.as_deref(), self.device.as_deref())
+        } else {
+            "Preparing model".to_owned()
+        };
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .text_size(px(theme::type_size::META))
+                    .text_color(palette.tertiary)
+                    .child("Your voice stays on this device."),
+            )
+            .child(
+                div()
+                    .text_size(px(theme::type_size::META))
+                    .text_color(palette.tertiary)
+                    .child(engine),
+            )
+    }
+
+    /// Configuration lives in its own space, grouped by what a person is
+    /// trying to change rather than by how the app is built.
+    fn settings_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let app = cx.entity().downgrade();
+        let mut rail = div()
+            .w(px(150.0))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .px(px(theme::space::LG))
+            .py(px(theme::space::LG));
+        for section in Section::all() {
+            rail = rail.child(self.section_button(&app, palette, section, cx));
+        }
+        let pane = self.section_pane(palette, cx);
+        // A section change dissolves instead of cutting.
+        let fade = 0.25 + 0.75 * self.motion.hover("section:fade");
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(self.title_bar(palette, cx))
+            .child(div().h(px(1.0)).bg(palette.hairline))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(rail)
+                    .child(div().w(px(1.0)).bg(palette.hairline))
+                    .child(
+                        div()
+                            .id("settings-pane")
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .px(px(theme::space::XL))
+                            .py(px(theme::space::LG))
+                            .overflow_y_scroll()
+                            .child(pane.opacity(fade)),
+                    ),
+            )
+    }
+
+    fn section_button(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        section: Section,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let index = section.index();
+        let selected = self.motion.hover(SECTION_KEYS[index]);
+        let hover = self.motion.hover(SECTION_HOVER_KEYS[index]);
+        let element = div()
+            .id(("section", index))
+            .flex()
+            .items_center()
+            .gap(px(theme::space::SM))
+            .px(px(theme::space::SM))
+            .py(px(5.0))
+            .rounded_md()
+            .bg(theme::mix(
+                theme::transparent(),
+                palette.raised_hover,
+                hover * 0.55,
+            ))
+            .text_size(px(theme::type_size::BODY))
+            .text_color(theme::mix(
+                palette.secondary,
+                palette.text,
+                selected.max(hover),
+            ))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| this.set_section(section, cx)))
+            .child(
+                div()
+                    .w(px(2.0))
+                    .h(px(12.0))
+                    .rounded_full()
+                    .bg(palette.accent)
+                    .opacity(selected),
+            )
+            .child(section.title());
+        pressable(
+            app.clone(),
+            SECTION_HOVER_KEYS[index],
+            hoverable(app.clone(), SECTION_HOVER_KEYS[index], element),
+        )
+    }
+
+    fn section_pane(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let section = self.section;
+        let mut pane = div().flex().flex_col();
+        pane = pane.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .pb(px(theme::space::MD))
+                .child(
+                    div()
+                        .font_family(theme::display_font())
+                        .text_size(px(theme::type_size::TITLE))
+                        .line_height(px(20.0))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(palette.text)
+                        .child(section.title()),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(16.0))
+                        .text_color(palette.secondary)
+                        .child(section.summary()),
+                ),
+        );
+
+        let rows: Vec<AnyElement> = match section {
+            Section::Dictation => self.dictation_rows(palette, cx),
+            Section::Audio => self.audio_rows(palette, cx),
+            Section::Recognition => self.recognition_rows(palette, cx),
+            Section::Appearance => self.appearance_rows(palette, cx),
+            Section::Privacy => self.privacy_rows(palette, cx),
+            Section::Advanced => self.advanced_rows(palette, cx),
+        };
+        for (index, row) in rows.into_iter().enumerate() {
+            if index > 0 {
+                pane = pane.child(div().h(px(1.0)).bg(palette.hairline));
+            }
+            pane = pane.child(row);
+        }
+        pane
+    }
+
+    fn dictation_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let hotkeys = div().flex().flex_wrap().gap(px(theme::space::SM)).children(
+            HOTKEYS.iter().enumerate().filter_map(|(index, name)| {
                 let config = HotkeyConfig::named(name)?;
                 Some(
-                    choice_pill(config.name, self.hotkey == config)
-                        .id(("hotkey", index))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.choose_hotkey(config, cx)),
-                        ),
+                    self.chip(
+                        &app,
+                        palette,
+                        HOTKEY_KEYS[index],
+                        config.name,
+                        self.hotkey == config,
+                    )
+                    .id(("hotkey", index))
+                    .on_click(cx.listener(move |this, _, _, cx| this.choose_hotkey(config, cx))),
                 )
-            })
-            .collect::<Vec<_>>();
-        let mut microphone_pills = vec![
-            choice_pill("System default", self.microphone.is_none())
-                .id("microphone-default")
-                .on_click(cx.listener(|this, _, _, cx| this.choose_microphone(None, cx))),
+            }),
+        );
+
+        let live_preview = self
+            .toggle(&app, palette, "toggle:preview", self.settings.live_preview)
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.live_preview;
+                this.set_live_preview(enabled, cx);
+            }));
+        let paste = self
+            .toggle(&app, palette, "toggle:paste", self.settings.paste)
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.paste;
+                this.set_paste(enabled, cx);
+            }));
+        let startup = self
+            .toggle(
+                &app,
+                palette,
+                "toggle:startup",
+                self.settings.launch_at_startup,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.launch_at_startup;
+                this.set_launch_at_startup(enabled, cx);
+            }));
+
+        vec![
+            setting_block(
+                palette,
+                "Dictation key",
+                "Hold to speak. Release to insert the text.",
+                hotkeys,
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Live preview",
+                "Show words while you speak. Costs extra GPU time.",
+                live_preview,
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Paste at the cursor",
+                "Insert the transcript as soon as it is ready.",
+                paste,
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Start at sign-in",
+                "Launch Draft in the tray when you sign in.",
+                startup,
+            )
+            .into_any_element(),
+        ]
+    }
+
+    fn audio_rows(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let mut chips = vec![
+            self.chip(
+                &app,
+                palette,
+                "chip:microphone:default",
+                "System default",
+                self.microphone.is_none(),
+            )
+            .id("microphone-default")
+            .on_click(cx.listener(|this, _, _, cx| this.choose_microphone(None, cx))),
         ];
         for (index, name) in self.microphones.iter().enumerate() {
             let selected = self.microphone.as_deref() == Some(name.as_str());
-            let is_default = self.default_microphone.as_deref() == Some(name.as_str());
             let display = microphone_display(name);
-            let label = if is_default {
+            let label = if self.default_microphone.as_deref() == Some(name.as_str()) {
                 format!("{display} · default")
             } else {
                 display
             };
             let device = name.clone();
-            microphone_pills.push(
-                choice_pill(label, selected)
+            let key = MICROPHONE_KEYS
+                .get(index)
+                .copied()
+                .unwrap_or("chip:microphone:default");
+            chips.push(
+                self.chip(&app, palette, key, label, selected)
                     .id(("microphone", index))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.choose_microphone(Some(device.clone()), cx)
                     })),
             );
         }
-        let model_action: AnyElement = if self.settings.model.is_some() {
-            div()
-                .id("model-default")
-                .px_3()
-                .py(px(6.0))
-                .rounded_full()
-                .border_1()
-                .border_color(theme::border())
-                .text_xs()
-                .text_color(theme::text_muted())
-                .cursor_pointer()
-                .hover(|style| style.text_color(theme::text()))
-                .on_click(cx.listener(|this, _, _, cx| this.use_default_model(cx)))
-                .child("Use default")
-                .into_any_element()
-        } else {
-            div()
-                .px_3()
-                .py(px(6.0))
-                .rounded_full()
-                .bg(theme::elevated())
-                .text_xs()
-                .text_color(theme::text_muted())
-                .child("Default")
-                .into_any_element()
-        };
+        let level = (self.input_level().sqrt() * 1.25).clamp(0.0, 1.0);
+        let meter = div()
+            .w(px(120.0))
+            .h(px(4.0))
+            .rounded_full()
+            .bg(palette.raised)
+            .child(
+                div()
+                    .h_full()
+                    .w(px(120.0 * level))
+                    .rounded_full()
+                    .bg(palette.accent),
+            );
+        let test = self
+            .text_button(
+                &app,
+                palette,
+                "button:test",
+                if self.level_test.is_some() {
+                    "Stop"
+                } else {
+                    "Test"
+                },
+            )
+            .id("microphone-test")
+            .on_click(cx.listener(|this, _, _, cx| this.test_microphone(cx)));
 
-        let header = div()
+        vec![
+            setting_block(
+                palette,
+                "Input device",
+                "If the saved device disappears, Draft uses the system default.",
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(theme::space::SM))
+                    .children(chips),
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Microphone test",
+                "Speak for four seconds to check the level.",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(theme::space::MD))
+                    .child(meter)
+                    .child(test),
+            )
+            .into_any_element(),
+        ]
+    }
+
+    fn recognition_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let model_name = model_label(&self.model);
+        let quantization = model_quantization(&self.model);
+        let mut actions = Vec::new();
+        if self.settings.model.is_some() {
+            actions.push(
+                self.text_button(&app, palette, "button:model-default", "Use default")
+                    .id("model-default")
+                    .on_click(cx.listener(|this, _, _, cx| this.use_default_model(cx))),
+            );
+        }
+        actions.push(
+            self.text_button(&app, palette, "button:model-folder", "Show in folder")
+                .id("model-folder")
+                .on_click(cx.listener(|this, _, _, cx| this.open_model_folder(cx))),
+        );
+        let backend = if self.engine_ready {
+            engine_label(self.backend.as_deref(), self.device.as_deref())
+        } else {
+            "Preparing".to_owned()
+        };
+        let path = self.model.display().to_string();
+
+        vec![
+            setting_row(
+                palette,
+                "Model",
+                &format!("{model_name} · {quantization} · local GGUF"),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(theme::space::MD))
+                    .children(actions),
+            )
+            .into_any_element(),
+            setting_block(
+                palette,
+                "Model file",
+                "A local file. Draft never downloads a model while you dictate.",
+                div()
+                    .text_size(px(theme::type_size::META))
+                    .line_height(px(15.0))
+                    .text_color(palette.tertiary)
+                    .child(path),
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Backend",
+                "Where the model runs.",
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .text_color(palette.secondary)
+                    .child(backend),
+            )
+            .into_any_element(),
+        ]
+    }
+
+    fn appearance_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let options = div()
             .flex()
             .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .rounded_lg()
-                            .bg(theme::accent())
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(theme::background())
-                                    .child("D"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_lg()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(theme::text())
-                                    .child("Draft"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::text_muted())
-                                    .child("On-device dictation"),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child("Closing hides to tray"),
-                    )
-                    .child(
-                        div()
-                            .id("close")
-                            .px_3()
-                            .py(px(6.0))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::border())
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .cursor_pointer()
-                            .hover(|style| style.text_color(theme::text()))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if this.tray.is_some() {
-                                    window_control::hide(window);
-                                } else {
-                                    cx.quit();
-                                }
-                            }))
-                            .child(if self.tray.is_some() { "Hide" } else { "Quit" }),
-                    ),
-            );
-
-        let hero_detail = match self.phase {
-            Phase::Listening if self.settings.live_preview => {
-                "Speak normally. Words appear here before you release.".to_owned()
-            }
-            Phase::Listening => "Speak normally. Release to transcribe.".to_owned(),
-            Phase::Transcribing => "Turning speech into text on this device.".to_owned(),
-            _ => detail.clone(),
-        };
-
-        let hero_body: AnyElement =
-            match self.phase {
-                Phase::Listening => {
-                    let partial = self
-                        .partial
-                        .as_deref()
-                        .map(partial_preview)
-                        .filter(|text| !text.trim().is_empty());
-                    let (words, words_color) = match partial {
-                        Some(text) => (text, theme::text()),
-                        None if self.settings.live_preview => (
-                            "Speak now — your words appear here as you talk.".to_owned(),
-                            theme::text_muted(),
-                        ),
-                        None => (
-                            "Listening. Release to transcribe.".to_owned(),
-                            theme::text_muted(),
-                        ),
-                    };
-                    div()
-                        .bg(theme::elevated())
-                        .rounded_lg()
-                        .p_5()
-                        .flex()
-                        .flex_col()
-                        .gap_4()
-                        .child(div().text_lg().text_color(words_color).child(words))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_4()
-                                .child(level_bars(level, 24, 30.0, 3.0, phase, theme::accent()))
-                                .child(div().text_xs().text_color(theme::text_muted()).child(
-                                    format!(
-                                        "Release {} to transcribe · Esc cancels",
-                                        self.hotkey_label
-                                    ),
-                                )),
-                        )
-                        .into_any_element()
-                }
-                Phase::Transcribing => div()
-                    .bg(theme::elevated())
-                    .rounded_lg()
-                    .p_5()
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .child(level_bars(
-                        0.0,
-                        24,
-                        24.0,
-                        3.0,
-                        phase * 0.6,
-                        theme::text_muted(),
+            .gap(px(2.0))
+            .p(px(2.0))
+            .rounded_md()
+            .bg(palette.raised)
+            .children(theme::Appearance::all().into_iter().map(|appearance| {
+                let selected = self.settings.appearance == appearance.id();
+                let appearance_index = appearance.index();
+                let key: &'static str = match appearance_index {
+                    0 => "chip:theme:system",
+                    1 => "chip:theme:light",
+                    _ => "chip:theme:dark",
+                };
+                let hover = self.motion.hover(key);
+                let element = div()
+                    .id(("theme", appearance_index))
+                    .px(px(12.0))
+                    .py(px(5.0))
+                    .rounded_sm()
+                    .bg(theme::mix(
+                        if selected {
+                            palette.canvas
+                        } else {
+                            theme::transparent()
+                        },
+                        palette.raised_hover,
+                        hover * 0.7,
                     ))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme::text_muted())
-                            .child("Finishing on this device…"),
-                    )
-                    .into_any_element(),
-                _ => {
-                    let (title, hint) = match self.phase {
-                        Phase::Loading => (
-                            "Warming the model",
-                            "Dictation starts as soon as the local model is ready.",
-                        ),
-                        Phase::Error => (
-                            "Check the message below",
-                            "Fix the problem, then restart Draft.",
-                        ),
-                        _ => ("Hold to dictate", "Release to paste at your cursor."),
-                    };
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_4()
-                        .child(keycap(self.hotkey_label.clone()))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .child(div().text_sm().text_color(theme::text()).child(title))
-                                .child(div().text_xs().text_color(theme::text_muted()).child(hint)),
-                        )
-                        .into_any_element()
-                }
-            };
+                    .text_size(px(theme::type_size::SMALL))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(if selected {
+                        palette.text
+                    } else {
+                        palette.secondary
+                    })
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_appearance(appearance, window, cx)
+                    }))
+                    .child(appearance.label());
+                hoverable(app.clone(), key, element)
+            }));
 
-        let hero = div()
-            .bg(theme::surface())
-            .border_1()
-            .border_color(theme::border())
-            .rounded_lg()
-            .p_6()
+        vec![
+            setting_row(
+                palette,
+                "Theme",
+                "Follow the system, or choose light or dark.",
+                options,
+            )
+            .into_any_element(),
+        ]
+    }
+
+    fn privacy_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let history_count = self
+            .history
+            .as_ref()
+            .map(|history| history.entries().len())
+            .unwrap_or(0);
+        let lead = div()
             .flex()
             .flex_col()
-            .gap_5()
+            .gap(px(theme::space::SM))
+            .py(px(theme::space::MD))
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_4()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(div().w(px(9.0)).h(px(9.0)).rounded_full().bg(color))
-                            .child(
-                                div()
-                                    .text_2xl()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(theme::text())
-                                    .child(status),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .px_3()
-                            .py(px(4.0))
-                            .rounded_full()
-                            .bg(theme::background())
-                            .border_1()
-                            .border_color(theme::border())
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child("LOCAL"),
-                    ),
+                    .font_family(theme::display_font())
+                    .text_size(px(theme::type_size::TITLE))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(palette.text)
+                    .child("Your voice stays on this device."),
             )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme::text_muted())
-                    .child(hero_detail),
-            )
-            .child(hero_body)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_6()
-                    .pt_1()
-                    .child(stat("Shortcut", self.hotkey_label.clone()))
-                    .child(stat("Model", format!("{model_name} · {model_detail}")))
-                    .child(stat("Engine", engine)),
-            );
-
-        let preferences = div()
-            .bg(theme::surface())
-            .border_1()
-            .border_color(theme::border())
-            .rounded_lg()
-            .p_6()
-            .flex()
-            .flex_col()
-            .gap_5()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(theme::text())
-                            .child("Settings"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child("Saved on this machine"),
-                    ),
-            )
-            .child(divider())
-            .child(section(
-                "Dictation key",
-                "Hold to dictate · release to paste",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(div().flex().flex_wrap().gap_2().children(hotkey_pills))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child("Changes apply immediately. Esc cancels an active capture."),
-                    ),
+            .child(paragraph(
+                palette,
+                "Draft captures audio only while you hold the dictation key. The clip is transcribed on this machine and then discarded.",
             ))
-            .child(divider())
-            .child(section(
-                "Microphone",
-                "Input device",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_4()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(theme::text())
-                                            .child(microphone_label),
-                                    )
-                                    .child(div().text_xs().text_color(theme::text_muted()).child(
-                                        if self.microphone.is_some() {
-                                            "Selected microphone"
-                                        } else {
-                                            "Follows the system default"
-                                        },
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(120.0))
-                                            .h(px(5.0))
-                                            .bg(theme::background())
-                                            .rounded_full()
-                                            .child(
-                                                div()
-                                                    .h_full()
-                                                    .w(px(120.0 * level_fill))
-                                                    .bg(theme::accent())
-                                                    .rounded_full(),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("microphone-test")
-                                            .px_3()
-                                            .py(px(6.0))
-                                            .rounded_full()
-                                            .border_1()
-                                            .border_color(theme::border())
-                                            .text_xs()
-                                            .text_color(theme::text_muted())
-                                            .cursor_pointer()
-                                            .hover(|style| style.text_color(theme::text()))
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.test_microphone(cx)
-                                            }))
-                                            .child(if testing { "Stop test" } else { "Test" }),
-                                    ),
-                            ),
-                    )
-                    .child(div().flex().flex_wrap().gap_2().children(microphone_pills))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child("The level moves while dictating or during a four-second test."),
-                    ),
+            .child(paragraph(
+                palette,
+                "The one exception is the model file: it is downloaded once from the internet and checked against a pinned checksum. The app makes no network requests.",
             ))
-            .child(divider())
-            .child(section(
-                "Live preview",
-                "GPU cost while speaking",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                choice_pill("Off", !self.settings.live_preview)
-                                    .id("preview-off")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.set_live_preview(false, cx)
-                                    })),
-                            )
-                            .child(
-                                choice_pill("On", self.settings.live_preview)
-                                    .id("preview-on")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.set_live_preview(true, cx)
-                                    })),
-                            ),
-                    )
-                    .child(div().text_xs().text_color(theme::text_muted()).child(
-                        "On shows rolling partial text, but each update is a full GPU pass and can make laptop fans louder. Final text always uses the complete clip.",
-                    )),
-            ))
-            .child(divider())
-            .child(section(
-                "Startup",
-                "At sign-in",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                choice_pill("Off", !self.settings.launch_at_startup)
-                                    .id("startup-off")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.set_launch_at_startup(false, cx)
-                                    })),
-                            )
-                            .child(
-                                choice_pill("On", self.settings.launch_at_startup)
-                                    .id("startup-on")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.set_launch_at_startup(true, cx)
-                                    })),
-                            ),
-                    )
-                    .child(div().text_xs().text_color(theme::text_muted()).child(
-                        "On starts Draft in the tray when you sign in, ready for the dictation key without opening this window.",
-                    )),
-            ))
-            .child(divider())
-            .child(section(
-                "Model",
-                "Local GGUF · never downloaded at runtime",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_4()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .flex_1()
-                                    .min_w(px(0.0))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(theme::text())
-                                            .child(format!("{model_name} · {model_detail}")),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme::text_muted())
-                                            .truncate()
-                                            .child(model_path),
-                                    ),
-                            )
-                            .child(model_action),
-                    )
-                    .child(div().text_xs().text_color(theme::text_muted()).child(
-                        "Set a different GGUF with --model or settings.json, then restart.",
-                    )),
+            .child(paragraph(
+                palette,
+                "Finished dictations are kept in a local history file so you can search them later. That file is never uploaded or synced.",
             ));
 
-        let mut content = div()
-            .id("draft-content")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.0))
-            .gap_4()
-            .overflow_y_scroll()
-            .child(hero);
+        let clear = self
+            .text_button(&app, palette, "button:clear-history", "Clear")
+            .id("clear-history")
+            .on_click(cx.listener(|this, _, _, cx| this.clear_history(cx)));
+        let open = self
+            .text_button(&app, palette, "button:open-data", "Open")
+            .id("open-data")
+            .on_click(cx.listener(|this, _, _, cx| this.open_data_folder(cx)));
 
-        if let Some(last) = &self.last {
-            let mut card = div()
-                .bg(theme::surface())
-                .border_1()
-                .border_color(theme::border())
-                .rounded_lg()
-                .p_5()
+        vec![
+            lead.into_any_element(),
+            setting_row(
+                palette,
+                "Local history",
+                &format!("{history_count} dictations stored in %LOCALAPPDATA%\\Draft4"),
+                clear,
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Data folder",
+                "Settings, models, logs, and history live here.",
+                open,
+            )
+            .into_any_element(),
+        ]
+    }
+
+    fn advanced_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+        let load = match self.load_ms {
+            Some(milliseconds) => format!("{:.1} s", milliseconds as f64 / 1000.0),
+            None => "Not measured yet".to_owned(),
+        };
+        let open = self
+            .text_button(&app, palette, "button:open-logs", "Open")
+            .id("open-logs")
+            .on_click(cx.listener(|this, _, _, cx| this.open_logs_folder(cx)));
+        let last = match self.last.as_ref() {
+            Some(result) => format!(
+                "{:.0} ms engine · {:.1} s audio",
+                result.engine_ms as f64, result.audio_s
+            ),
+            None => "No dictation yet".to_owned(),
+        };
+
+        vec![
+            setting_row(
+                palette,
+                "Version",
+                "Draft for Windows.",
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .text_color(palette.secondary)
+                    .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Model load",
+                "Time to load and warm the model at launch.",
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .text_color(palette.secondary)
+                    .child(load),
+            )
+            .into_any_element(),
+            setting_row(
+                palette,
+                "Last dictation",
+                "Time for the most recent transcript.",
+                div()
+                    .text_size(px(theme::type_size::SMALL))
+                    .text_color(palette.secondary)
+                    .child(last),
+            )
+            .into_any_element(),
+            setting_row(palette, "Logs", "Diagnostics from the last sessions.", open)
+                .into_any_element(),
+            setting_row(
+                palette,
+                "Command line",
+                "Install or verify the model from a terminal.",
+                div()
+                    .text_size(px(theme::type_size::META))
+                    .text_color(palette.tertiary)
+                    .child("draftctl model install"),
+            )
+            .into_any_element(),
+        ]
+    }
+}
+
+impl Render for DraftApp {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.palette_for(window);
+        self.palette = palette;
+        let (view, opacity) = match self.transition.as_ref() {
+            Some(transition) if !transition.swapped => {
+                let progress =
+                    (transition.started.elapsed().as_secs_f32() / FADE_OUT.as_secs_f32()).min(1.0);
+                (transition.from, 1.0 - progress)
+            }
+            Some(transition) => {
+                let progress =
+                    (transition.started.elapsed().as_secs_f32() / FADE_IN.as_secs_f32()).min(1.0);
+                (transition.to, progress)
+            }
+            None => (self.view, 1.0),
+        };
+        let root = div()
+            .id("draft-root")
+            .size_full()
+            .bg(palette.canvas)
+            .text_color(palette.text)
+            .font_family(theme::text_font());
+
+        match view {
+            View::Dictate => root.child(self.dictate_view(&palette, cx).opacity(opacity)),
+            View::Settings => root.child(self.settings_view(&palette, cx).opacity(opacity)),
+        }
+    }
+}
+
+fn headline(text: &str, color: Rgba) -> Div {
+    div()
+        .font_family(theme::display_font())
+        .text_size(px(theme::type_size::HEADLINE))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(color)
+        .child(text.to_owned())
+}
+
+fn secondary(palette: &theme::Palette, text: &str) -> Div {
+    div()
+        .text_size(px(theme::type_size::BODY))
+        .text_color(palette.secondary)
+        .child(text.to_owned())
+}
+
+fn paragraph(palette: &theme::Palette, text: &str) -> Div {
+    div()
+        .text_size(px(theme::type_size::BODY))
+        .line_height(px(19.0))
+        .text_color(palette.secondary)
+        .max_w(px(420.0))
+        .child(text.to_owned())
+}
+
+/// Ease a control's hover state instead of switching it instantly.
+fn hoverable(
+    app: WeakEntity<DraftApp>,
+    key: &'static str,
+    element: Stateful<Div>,
+) -> Stateful<Div> {
+    let app = app.clone();
+    element.on_hover(move |hovered, _, cx| {
+        let _ = app.update(cx, |this, cx| {
+            this.motion.set_hover(key, if *hovered { 1.0 } else { 0.0 });
+            cx.notify();
+        });
+    })
+}
+
+/// Give a control a press state, so a click is felt as well as seen.
+fn pressable(
+    app: WeakEntity<DraftApp>,
+    key: &'static str,
+    element: Stateful<Div>,
+) -> Stateful<Div> {
+    let down = app.clone();
+    let up = app.clone();
+    element
+        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+            let _ = down.update(cx, |this, cx| {
+                this.motion.set_press(key, 1.0);
+                cx.notify();
+            });
+        })
+        .on_mouse_up_out(gpui::MouseButton::Left, move |_, _, cx| {
+            let _ = up.update(cx, |this, cx| {
+                this.motion.set_press(key, 0.0);
+                cx.notify();
+            });
+        })
+}
+
+fn keycap(palette: &theme::Palette, label: &str) -> Div {
+    div()
+        .px(px(8.0))
+        .py(px(3.0))
+        .rounded_md()
+        .bg(palette.keycap)
+        .border_1()
+        .border_color(palette.keycap_border)
+        .text_size(px(theme::type_size::BODY))
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(palette.text)
+        .child(label.to_owned())
+}
+
+fn brand_mark(palette: &theme::Palette, size: f32) -> Div {
+    let bars = [0.45, 0.8, 1.0, 0.6];
+    let width = (size * 0.13).max(1.5);
+    let gap = size * 0.12;
+    div()
+        .w(px(size))
+        .h(px(size))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(gap))
+        .children(bars.into_iter().map(|factor| {
+            div()
+                .w(px(width))
+                .h(px(factor * size * 0.6))
+                .rounded_full()
+                .bg(palette.accent)
+        }))
+}
+
+/// A label and its explanation, with the control on the right.
+fn setting_row(
+    palette: &theme::Palette,
+    title: &str,
+    description: &str,
+    control: impl IntoElement,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(theme::space::LG))
+        .py(px(10.0))
+        .child(
+            div()
                 .flex()
                 .flex_col()
-                .gap_3()
+                .gap(px(2.0))
+                .flex_1()
+                .min_w(px(0.0))
                 .child(
                     div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme::text_muted())
-                                .child("Last dictation"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme::text_muted())
-                                .child(format!(
-                                    "{:.0} ms engine · {:.1}s audio",
-                                    last.engine_ms as f64, last.audio_s
-                                )),
-                        ),
+                        .text_size(px(theme::type_size::BODY))
+                        .line_height(px(18.0))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(palette.text)
+                        .child(title.to_owned()),
                 )
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(theme::text())
-                        .child(preview(&last.text)),
-                );
-            if let Some(error) = &last.paste_error {
-                card = card.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme::danger())
-                        .child(format!("Paste warning: {error}")),
-                );
-            }
-            content = content.child(card);
-        }
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(16.0))
+                        .text_color(palette.tertiary)
+                        .child(description.to_owned()),
+                ),
+        )
+        .child(div().flex_shrink_0().child(control))
+}
 
-        content = content.child(preferences);
+/// A label, its explanation, and content that needs the full width.
+fn setting_block(
+    palette: &theme::Palette,
+    title: &str,
+    description: &str,
+    content: impl IntoElement,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(theme::space::SM))
+        .py(px(10.0))
+        .child(
+            div()
+                .text_size(px(theme::type_size::BODY))
+                .line_height(px(18.0))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(palette.text)
+                .child(title.to_owned()),
+        )
+        .child(
+            div()
+                .text_size(px(theme::type_size::SMALL))
+                .line_height(px(16.0))
+                .text_color(palette.tertiary)
+                .child(description.to_owned()),
+        )
+        .child(content)
+}
 
-        if let Some(error) = &self.error {
-            content = content.child(
-                div()
-                    .bg(theme::surface())
-                    .border_1()
-                    .border_color(theme::danger())
-                    .rounded_lg()
-                    .p_4()
-                    .text_xs()
-                    .text_color(theme::danger())
-                    .child(error.clone()),
-            );
-        }
-        if let Some(notice) = &self.notice {
-            content = content.child(
-                div()
-                    .text_xs()
-                    .text_color(theme::text_muted())
-                    .child(notice.clone()),
-            );
-        }
+/// A selectable option. Selection is a quiet wash, not another border.
+fn pasted_ago(at: Instant) -> String {
+    let seconds = at.elapsed().as_secs();
+    match seconds {
+        0..=4 => "Pasted just now".to_owned(),
+        5..=59 => format!("Pasted {seconds} seconds ago"),
+        60..=3599 => format!("Pasted {} minutes ago", seconds / 60),
+        _ => format!("Pasted {} hours ago", seconds / 3600),
+    }
+}
 
-        div()
-            .id("draft-root")
-            .size_full()
-            .bg(theme::background())
-            .flex()
-            .flex_col()
-            .p_6()
-            .gap_4()
-            .child(header)
-            .child(content)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child("Local audio. Local text. Nothing leaves this machine."),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::text_muted())
-                            .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
-                    ),
-            )
+/// Open a path in the platform file manager without flashing a console.
+fn open_in_file_manager(path: &Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("explorer")
+            .arg(path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
     }
 }
 
@@ -1594,99 +2654,6 @@ fn engine_label(backend: Option<&str>, device: Option<&str>) -> String {
         Some(device) => format!("{family} · {device}"),
         None => family.to_owned(),
     }
-}
-
-fn choice_pill(label: impl IntoElement, selected: bool) -> Div {
-    let pill = div()
-        .px_3()
-        .py(px(6.0))
-        .rounded_full()
-        .border_1()
-        .text_xs()
-        .cursor_pointer();
-    if selected {
-        pill.bg(theme::elevated())
-            .border_color(theme::accent())
-            .text_color(theme::text())
-            .child(label)
-    } else {
-        pill.bg(theme::background())
-            .border_color(theme::border())
-            .text_color(theme::text_muted())
-            .hover(|style| {
-                style
-                    .text_color(theme::text())
-                    .border_color(theme::text_muted())
-            })
-            .child(label)
-    }
-}
-
-fn section(title: &'static str, hint: &'static str, body: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(div().text_sm().text_color(theme::text()).child(title))
-                .child(div().text_xs().text_color(theme::text_muted()).child(hint)),
-        )
-        .child(body)
-}
-
-fn divider() -> Div {
-    div().h(px(1.0)).bg(theme::border())
-}
-
-fn stat(label: &'static str, value: String) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(div().text_xs().text_color(theme::text_muted()).child(label))
-        .child(div().text_sm().text_color(theme::text()).child(value))
-}
-
-fn keycap(label: String) -> Div {
-    div()
-        .px_5()
-        .py_3()
-        .rounded_lg()
-        .bg(theme::elevated())
-        .border_1()
-        .border_color(theme::border())
-        .text_xl()
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .text_color(theme::text())
-        .child(label)
-}
-
-fn level_bars(
-    level: f32,
-    count: usize,
-    max_height: f32,
-    width: f32,
-    phase: f32,
-    color: Rgba,
-) -> Div {
-    let amplitude = (level.sqrt() * 1.2).clamp(0.0, 1.0);
-    let bars = (0..count)
-        .map(|index| {
-            let wave = ((phase + index as f32 * 0.55).sin() * 0.5 + 0.5).powi(2);
-            let height = 4.0 + wave * (6.0 + amplitude * (max_height - 10.0));
-            div().w(px(width)).h(px(height)).rounded_full().bg(color)
-        })
-        .collect::<Vec<_>>();
-    div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .h(px(max_height))
-        .children(bars)
 }
 
 fn model_label(path: &Path) -> String {

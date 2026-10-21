@@ -2,7 +2,7 @@
 //!
 //! It lives in its own transparent popup window so it can stay above the target
 //! application without taking focus. The main window owns the state; this view
-//! draws a live level meter and the latest preview of what was heard.
+//! draws the real microphone level and the newest words that were heard.
 
 use std::time::Instant;
 
@@ -24,26 +24,34 @@ pub struct HudSnapshot {
     pub partial: Option<String>,
     pub level: f32,
     pub tone: HudTone,
+    pub palette: theme::Palette,
 }
 
 impl HudSnapshot {
-    pub fn listening(hotkey: &str, partial: Option<String>, level: f32) -> Self {
+    pub fn listening(
+        hotkey: &str,
+        partial: Option<String>,
+        level: f32,
+        palette: theme::Palette,
+    ) -> Self {
         Self {
             title: "Listening".to_owned(),
-            detail: format!("Release {hotkey} to transcribe · Esc cancels"),
+            detail: format!("Release {hotkey} to transcribe"),
             partial,
             level,
             tone: HudTone::Listening,
+            palette,
         }
     }
 
-    pub fn transcribing() -> Self {
+    pub fn transcribing(palette: theme::Palette) -> Self {
         Self {
             title: "Transcribing".to_owned(),
             detail: "Finishing on this device".to_owned(),
             partial: None,
             level: 0.0,
             tone: HudTone::Working,
+            palette,
         }
     }
 }
@@ -76,19 +84,31 @@ impl Render for DraftHud {
             return div().size_full();
         };
 
+        let palette = snapshot.palette;
         let listening = snapshot.tone == HudTone::Listening;
         let accent = if listening {
-            theme::accent()
+            palette.accent
         } else {
-            theme::text_muted()
+            palette.tertiary
         };
-        let phase = self.started.elapsed().as_secs_f32() * 7.0;
+
+        // The level is the real microphone level, so the meter moves only when
+        // there is something to hear.
+        let phase = self.started.elapsed().as_secs_f32() * 6.0;
         let amplitude = (snapshot.level.sqrt() * 1.15).clamp(0.0, 1.0);
-        let bars = (0..14)
+        let bars = (0..12)
             .map(|index| {
-                let wave = ((phase + index as f32 * 0.62).sin() * 0.5 + 0.5).powi(2);
-                let height = 5.0 + wave * (6.0 + amplitude * 30.0);
-                div().w(px(3.0)).h(px(height)).rounded_full().bg(accent)
+                let wave = ((phase + index as f32 * 0.5).sin() * 0.5 + 0.5).powi(2);
+                let height = 4.0 + wave * (4.0 + amplitude * 18.0);
+                div()
+                    .w(px(2.0))
+                    .h(px(height))
+                    .rounded_full()
+                    .bg(if amplitude > 0.02 {
+                        accent
+                    } else {
+                        palette.track
+                    })
             })
             .collect::<Vec<_>>();
 
@@ -96,42 +116,36 @@ impl Render for DraftHud {
             .partial
             .as_deref()
             .filter(|text| !text.trim().is_empty())
-            .map(|text| (clip_tail(text, 100), theme::text(), 13.0))
-            .unwrap_or_else(|| {
-                let text = if listening {
-                    "Speak now."
-                } else {
-                    "Finishing your words…"
-                };
-                (text.to_owned(), theme::text_muted(), 13.0)
-            });
+            .map(|text| (clip_tail(text, 96), palette.text))
+            .unwrap_or_else(|| (snapshot.detail.clone(), palette.secondary));
 
         div()
             .size_full()
             .flex()
             .items_center()
             .justify_center()
-            .p_2()
+            .p(px(8.0))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_4()
-                    .w_full()
-                    .px_5()
-                    .py_4()
-                    .rounded_lg()
-                    .bg(theme::surface())
+                    .gap(px(12.0))
+                    .w(px(560.0))
+                    .px(px(14.0))
+                    .py(px(10.0))
+                    .rounded_xl()
+                    .bg(palette.canvas)
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(palette.hairline)
+                    .shadow(theme::hud_shadow())
                     .child(
                         div()
+                            .w(px(40.0))
+                            .h(px(24.0))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .gap_1()
-                            .w(px(96.0))
-                            .h(px(40.0))
+                            .gap(px(2.0))
                             .children(bars),
                     )
                     .child(
@@ -139,55 +153,37 @@ impl Render for DraftHud {
                             .flex()
                             .flex_col()
                             .flex_1()
-                            .gap_1()
+                            .min_w(px(0.0))
+                            .gap(px(2.0))
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .text_color(theme::text())
-                                            .child(snapshot.title.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .px_2()
-                                            .py(px(1.0))
-                                            .rounded_full()
-                                            .bg(theme::background())
-                                            .text_xs()
-                                            .text_color(theme::text_muted())
-                                            .child("LOCAL"),
-                                    ),
+                                    .font_family(theme::display_font())
+                                    .text_size(px(13.0))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(if listening {
+                                        palette.text
+                                    } else {
+                                        palette.secondary
+                                    })
+                                    .child(snapshot.title.clone()),
                             )
                             .child(
                                 div()
-                                    .text_size(px(body.2))
+                                    .text_size(px(12.0))
                                     .text_color(body.1)
-                                    .h(px(34.0))
+                                    .h(px(16.0))
                                     .overflow_hidden()
                                     .child(body.0),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::text_muted())
-                                    .child(snapshot.detail.clone()),
                             ),
                     )
                     .child(
                         div()
                             .px_2()
-                            .py_1()
-                            .rounded_lg()
-                            .bg(theme::background())
-                            .border_1()
-                            .border_color(theme::border())
-                            .text_xs()
-                            .text_color(theme::text_muted())
+                            .py(px(3.0))
+                            .rounded_md()
+                            .bg(palette.raised)
+                            .text_size(px(11.0))
+                            .text_color(palette.tertiary)
                             .child(if listening { "ESC" } else { "…" }),
                     ),
             )

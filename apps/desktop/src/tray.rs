@@ -39,25 +39,29 @@ fn icon_rgba() -> Vec<u8> {
     const SIZE: i32 = 32;
     let mut pixels = vec![0u8; (SIZE * SIZE * 4) as usize];
 
+    // A dark rounded tile keeps the tray icon consistent with the app's brand
+    // mark. The amber bars are the only bright pixels, so the icon reads
+    // clearly on both light and dark taskbars.
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let dx = x as f32 + 0.5 - 16.0;
-            let dy = y as f32 + 0.5 - 16.0;
-            let distance = (dx * dx + dy * dy).sqrt();
-            if distance > 15.0 {
+            let radius = 7.0;
+            let inside_x = (x as f32).clamp(radius, (SIZE as f32) - 1.0 - radius);
+            let inside_y = (y as f32).clamp(radius, (SIZE as f32) - 1.0 - radius);
+            let dx = x as f32 + 0.5 - (inside_x + 0.5);
+            let dy = y as f32 + 0.5 - (inside_y + 0.5);
+            if (dx * dx + dy * dy).sqrt() > radius {
                 continue;
             }
-            let alpha = ((15.0 - distance).clamp(0.0, 1.0) * 255.0) as u8;
             let index = ((y * SIZE + x) * 4) as usize;
-            pixels[index..index + 4].copy_from_slice(&[0xd9, 0xa4, 0x41, alpha]);
+            pixels[index..index + 4].copy_from_slice(&[0x10, 0x10, 0x14, 255]);
         }
     }
 
-    for (center_x, half_height) in [(11_i32, 4_i32), (16, 7), (21, 5)] {
+    for (center_x, half_height) in [(8_i32, 5_i32), (13, 8), (18, 11), (23, 8), (28, 5)] {
         for y in (16 - half_height)..(16 + half_height) {
             for x in (center_x - 1)..(center_x + 1) {
                 let index = ((y * SIZE + x) * 4) as usize;
-                pixels[index..index + 4].copy_from_slice(&[0x14, 0x10, 0x0c, 255]);
+                pixels[index..index + 4].copy_from_slice(&[0xf0, 0xb4, 0x5c, 255]);
             }
         }
     }
