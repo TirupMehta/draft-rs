@@ -25,6 +25,8 @@ transcript.
 - The model loads once on Vulkan and stays warm; release p95 is 2.9-4.1x faster
   than Draft v3.5 on the benchmark clips.
 - Tray app with Show, Hide, Paste last, and Quit. Closing the window hides it.
+  Draft starts in the tray when you sign in; turn that off under Settings >
+  Startup.
 - Click-through recording HUD with a live waveform, optional partial text, and
   listening and transcribing states.
 - Preferences persist the shortcut, microphone, and model path to
@@ -37,8 +39,8 @@ transcript.
   entry cap, a byte cap, search, delete, and clear (`draftctl history`). The app
   records each finished transcript; the History pane is not built yet.
 - A per-user Windows installer with a standard wizard, Start Menu and optional
-  desktop shortcuts, and a clean uninstall. No administrator prompt and no
-  console window. It is not code-signed yet.
+  desktop shortcuts, tray-first sign-in startup, and a clean uninstall. No
+  administrator prompt and no console window. It is not code-signed yet.
 - `draftctl` for model management, transcription, microphone capture, and
   benchmark runs.
 

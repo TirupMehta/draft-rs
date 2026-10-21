@@ -91,7 +91,9 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
       write never blocks dictation.
 - [ ] History pane with search, copy, delete, clear, and retention controls.
 - [ ] Corrections, taught words, hotwords.
-- [ ] Launch at login, sounds, theme.
+- [x] Launch at login on Windows: a per-user Run entry starts Draft silently in
+      the tray, with a Settings > Startup toggle.
+- [ ] Optional sounds and light/dark theme.
 
 ## M4 — Distribution
 

@@ -32,6 +32,10 @@ pub struct Settings {
     /// laptop that can keep the fans running for the whole dictation. The
     /// final transcript always uses the complete clip.
     pub live_preview: bool,
+    /// Whether Draft starts in the tray when the user signs in. The desktop
+    /// shell owns the Windows Run entry; this field is the source of truth and
+    /// lets the user turn it off again without hunting through Task Manager.
+    pub launch_at_startup: bool,
 }
 
 impl Default for Settings {
@@ -42,6 +46,7 @@ impl Default for Settings {
             microphone: None,
             paste: true,
             live_preview: false,
+            launch_at_startup: true,
         }
     }
 }
@@ -122,6 +127,7 @@ mod tests {
         assert_eq!(settings.microphone, None);
         assert!(settings.paste);
         assert!(!settings.live_preview);
+        assert!(settings.launch_at_startup);
     }
 
     #[test]
@@ -142,6 +148,7 @@ mod tests {
             microphone: Some("USB Microphone".to_owned()),
             paste: false,
             live_preview: true,
+            launch_at_startup: false,
         };
 
         settings.save(&path).unwrap();
@@ -175,6 +182,10 @@ mod tests {
         assert!(
             !settings.live_preview,
             "older files must keep the quiet default"
+        );
+        assert!(
+            settings.launch_at_startup,
+            "older files opt into the tray-first startup default"
         );
     }
 

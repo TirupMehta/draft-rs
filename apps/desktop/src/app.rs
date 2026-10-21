@@ -17,6 +17,7 @@ use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
 
 use crate::hud::{DraftHud, HudSnapshot};
+use crate::startup;
 use crate::theme;
 use crate::tray;
 use crate::window_control;
@@ -124,6 +125,13 @@ impl DraftApp {
         settings_path: PathBuf,
         hud: Entity<DraftHud>,
     ) -> Self {
+        // Keep the Run entry pointed at this executable after an in-place
+        // update. Debug builds never touch the user's startup settings.
+        #[cfg(all(target_os = "windows", not(debug_assertions)))]
+        if let Err(error) = startup::apply(settings.launch_at_startup) {
+            tracing::warn!(%error, "could not update the startup registration");
+        }
+
         let microphones = match draft_audio::input_devices() {
             Ok(devices) => devices,
             Err(error) => {
@@ -527,6 +535,29 @@ impl DraftApp {
             self.notice = Some("Live preview off. Dictation uses one final GPU pass.".to_owned());
         }
         self.save_settings();
+        cx.notify();
+    }
+
+    fn set_launch_at_startup(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.launch_at_startup == enabled {
+            return;
+        }
+        match startup::apply(enabled) {
+            Ok(()) => {
+                self.settings.launch_at_startup = enabled;
+                if self.save_settings() {
+                    self.notice = Some(if enabled {
+                        "Draft will start in the tray when you sign in.".to_owned()
+                    } else {
+                        "Draft will no longer start when you sign in.".to_owned()
+                    });
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not update the startup registration");
+                self.notice = Some(format!("Could not update startup: {error}"));
+            }
+        }
         cx.notify();
     }
 
@@ -1345,6 +1376,37 @@ impl Render for DraftApp {
                     )
                     .child(div().text_xs().text_color(theme::text_muted()).child(
                         "On shows rolling partial text, but each update is a full GPU pass and can make laptop fans louder. Final text always uses the complete clip.",
+                    )),
+            ))
+            .child(divider())
+            .child(section(
+                "Startup",
+                "At sign-in",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                choice_pill("Off", !self.settings.launch_at_startup)
+                                    .id("startup-off")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_launch_at_startup(false, cx)
+                                    })),
+                            )
+                            .child(
+                                choice_pill("On", self.settings.launch_at_startup)
+                                    .id("startup-on")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_launch_at_startup(true, cx)
+                                    })),
+                            ),
+                    )
+                    .child(div().text_xs().text_color(theme::text_muted()).child(
+                        "On starts Draft in the tray when you sign in, ready for the dictation key without opening this window.",
                     )),
             ))
             .child(divider())

@@ -91,7 +91,8 @@ shell over the same core, not a separate product.
 - Model manager: download, checksum, install, select, and delete models.
 - Local History with retention windows, search, copy, delete, and clear.
 - Corrections, taught words, and hotwords applied before paste.
-- Launch at login, optional sounds, light/dark theme, interface language later.
+- Launch at login (Windows tray-first), optional sounds, light/dark theme,
+  interface language later.
 - Local diagnostics: NDJSON event log plus a human-readable process log.
 
 ### V1

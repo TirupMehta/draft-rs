@@ -7,6 +7,7 @@
 
 mod app;
 mod hud;
+mod startup;
 mod theme;
 mod tray;
 mod window_control;
@@ -56,13 +57,14 @@ fn main() -> color_eyre::Result<()> {
                         ..Default::default()
                     }),
                     app_id: Some("in.tirup.draft".into()),
+                    show: !options.background,
                     ..Default::default()
                 },
                 |_, _| app.clone(),
             )
             .expect("could not open the Draft window");
 
-        let main_handle = cx.active_window();
+        let main_handle = window.into();
         let tray_available = app.read(cx).has_tray();
         let main_hwnd = window
             .update(cx, |_, window, cx| {
@@ -74,7 +76,9 @@ fn main() -> color_eyre::Result<()> {
                         true
                     }
                 });
-                window.activate_window();
+                if !options.background {
+                    window.activate_window();
+                }
                 hwnd
             })
             .ok()
@@ -126,7 +130,7 @@ fn main() -> color_eyre::Result<()> {
         }
 
         app.update(cx, |app, _| {
-            app.attach_windows(main_handle, main_hwnd, hud_hwnd);
+            app.attach_windows(Some(main_handle), main_hwnd, hud_hwnd);
         });
 
         let poll_app = app.clone();
@@ -183,6 +187,9 @@ struct Options {
     microphone: Option<String>,
     settings: Settings,
     settings_path: PathBuf,
+    /// Sign-in launches pass this flag so Draft waits in the tray instead of
+    /// opening its settings window on top of the desktop.
+    background: bool,
 }
 
 fn parse_options() -> Options {
@@ -210,6 +217,7 @@ fn parse_options() -> Options {
         HotkeyConfig::default()
     });
     let mut microphone = settings.microphone.clone();
+    let mut background = false;
 
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -246,6 +254,7 @@ fn parse_options() -> Options {
                 };
             }
             "--no-paste" => paste = false,
+            "--background" => background = true,
             "--hotkey" => {
                 let Some(value) = args.next() else {
                     eprintln!("--hotkey needs a value");
@@ -304,6 +313,7 @@ fn parse_options() -> Options {
         microphone,
         settings,
         settings_path,
+        background,
     }
 }
 
@@ -326,7 +336,7 @@ fn help() -> &'static str {
 
 Usage:
   draft [--model PATH] [--backend auto|vulkan|metal|cuda|cpu] [--hotkey NAME]
-        [--microphone NAME|default] [--no-paste] [--settings PATH]
+        [--microphone NAME|default] [--no-paste] [--background] [--settings PATH]
 
 Settings live at %LOCALAPPDATA%\\Draft4\\settings.json and change from the
 Preferences card. CLI flags override them for this launch. Set

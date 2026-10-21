@@ -5,7 +5,7 @@
 ; user data stays in %LOCALAPPDATA%\Draft4 where the app expects it.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.2.0"
 #endif
 #ifndef SourceExe
   #define SourceExe "..\..\dist\draft.exe"
@@ -53,6 +53,11 @@ Source: "{#ModelPath}"; DestDir: "{localappdata}\Draft4\models"; Flags: onlyifdo
 [Icons]
 Name: "{autoprograms}\Draft"; Filename: "{app}\draft.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\Draft"; Filename: "{app}\draft.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[Registry]
+; Sign-in launches stay in the tray. The app also rewrites this value after an
+; in-place update so it always points at the current executable.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Draft"; ValueData: """{app}\draft.exe"" --background"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\draft.exe"; Description: "Launch Draft"; Flags: nowait postinstall skipifsilent
