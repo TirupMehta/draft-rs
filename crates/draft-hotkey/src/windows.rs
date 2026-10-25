@@ -20,7 +20,37 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-use crate::{HotkeyConfig, HotkeyEvent, VK_ESCAPE};
+use crate::{HotkeyConfig, HotkeyEvent};
+
+/// Right Ctrl, the default dictation key.
+const VK_RCONTROL: u32 = 0xA3;
+/// Right Alt / AltGr.
+const VK_RMENU: u32 = 0xA5;
+/// Escape, which cancels an active capture.
+const VK_ESCAPE: u32 = 0x1B;
+/// F8, useful while another dictation app owns Right Ctrl.
+const VK_F8: u32 = 0x77;
+/// F9.
+const VK_F9: u32 = 0x78;
+/// Pause/Break.
+const VK_PAUSE: u32 = 0x13;
+/// Scroll Lock.
+const VK_SCROLL: u32 = 0x91;
+
+/// The Windows virtual-key code for a configured key.
+///
+/// The mapping lives here rather than in `HotkeyConfig` so the shared type
+/// carries no Windows numbers. A macOS event tap will need its own table.
+fn virtual_key(config: HotkeyConfig) -> u32 {
+    match config {
+        HotkeyConfig::RightCtrl => VK_RCONTROL,
+        HotkeyConfig::RightAlt => VK_RMENU,
+        HotkeyConfig::F8 => VK_F8,
+        HotkeyConfig::F9 => VK_F9,
+        HotkeyConfig::Pause => VK_PAUSE,
+        HotkeyConfig::ScrollLock => VK_SCROLL,
+    }
+}
 
 /// A leaked shared record. Leaking one per listener keeps the hook callback
 /// lock-free and safe even if a callback is in flight during shutdown.
@@ -79,7 +109,7 @@ pub fn start(config: HotkeyConfig) -> Result<(HotkeyListener, Receiver<HotkeyEve
     let (sender, receiver) = sync_channel(4096);
     let shared = Box::new(Shared {
         sender,
-        virtual_key: config.virtual_key,
+        virtual_key: virtual_key(config),
         holding: AtomicBool::new(false),
         escape_down: AtomicBool::new(false),
     });
@@ -102,7 +132,11 @@ pub fn start(config: HotkeyConfig) -> Result<(HotkeyListener, Receiver<HotkeyEve
 
     match ready_receiver.recv() {
         Ok(Ok(thread_id)) => {
-            info!(virtual_key = config.virtual_key, "global hotkey ready");
+            info!(
+                virtual_key = virtual_key(config),
+                key = config.id(),
+                "global hotkey ready"
+            );
             Ok((
                 HotkeyListener {
                     thread_id,

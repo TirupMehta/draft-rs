@@ -27,14 +27,6 @@ use crate::tray;
 use crate::window_control;
 use crate::worker::{self, Job};
 
-const HOTKEYS: [&str; 6] = [
-    "right-ctrl",
-    "right-alt",
-    "f8",
-    "f9",
-    "pause",
-    "scroll-lock",
-];
 /// Stable names for the controls that ease. A control is identified by a
 /// static key so the animation state survives a repaint.
 const HOTKEY_KEYS: [&str; 6] = [
@@ -327,7 +319,7 @@ impl DraftApp {
         let model_display = model.clone();
         let (jobs, worker_events, final_pending) = worker::spawn(model, backend);
         let (clipboard_sender, clipboard_notices) = channel();
-        let hotkey_label = hotkey.name.to_owned();
+        let hotkey_label = hotkey.name().to_owned();
         let tray = match tray::build(&hotkey_label) {
             Ok(tray) => Some(tray),
             Err(error) => {
@@ -605,7 +597,7 @@ impl DraftApp {
             if self.settings.hotkey != config.id() {
                 self.settings.hotkey = config.id().to_owned();
                 if self.save_settings() {
-                    self.notice = Some(format!("Dictation key: {}", config.name));
+                    self.notice = Some(format!("Dictation key: {}", config.name()));
                 }
                 cx.notify();
             }
@@ -619,7 +611,7 @@ impl DraftApp {
         if self.restart_hotkey(config) {
             self.settings.hotkey = config.id().to_owned();
             if self.save_settings() {
-                self.notice = Some(format!("Dictation key: {}", config.name));
+                self.notice = Some(format!("Dictation key: {}", config.name()));
             }
         }
         cx.notify();
@@ -638,7 +630,7 @@ impl DraftApp {
                 self._hotkey = Some(listener);
                 self.hotkey_events = Some(events);
                 self.hotkey = config;
-                self.hotkey_label = config.name.to_owned();
+                self.hotkey_label = config.name().to_owned();
                 self.update_tray_tooltip();
                 self.hotkey_error = None;
                 self.error = None;
@@ -650,7 +642,7 @@ impl DraftApp {
                 true
             }
             Err(error) => {
-                tracing::warn!(%error, key = config.name, "could not switch the dictation key");
+                tracing::warn!(%error, key = config.name(), "could not switch the dictation key");
                 match draft_hotkey::start(previous) {
                     Ok((listener, events)) => {
                         self._hotkey = Some(listener);
@@ -659,7 +651,8 @@ impl DraftApp {
                         self.error = None;
                         self.notice = Some(format!(
                             "Could not use {}; kept {}.",
-                            config.name, previous.name
+                            config.name(),
+                            previous.name()
                         ));
                         if self.engine_ready {
                             self.refresh_phase();
@@ -845,10 +838,14 @@ impl DraftApp {
             Phase::Listening => Some(HudSnapshot::listening(
                 &self.hotkey_label,
                 self.partial.clone(),
-                self.input_level(),
+                self.hud_bars(),
+                self.recording_started.map(elapsed_label),
                 self.palette,
             )),
-            Phase::Transcribing => Some(HudSnapshot::transcribing(self.palette)),
+            Phase::Transcribing => Some(HudSnapshot::transcribing(
+                (self.clock.elapsed().as_millis() / 140 % 3) as u8,
+                self.palette,
+            )),
             Phase::Loading | Phase::Ready | Phase::Error => None,
         };
         if snapshot == self.hud_snapshot {
@@ -1527,6 +1524,32 @@ impl DraftApp {
             )
     }
 
+    /// The same real history as the input band, sampled for the HUD's narrower
+    /// meter. Sixteen bars, oldest first, so the newest level is at the right.
+    fn hud_bars(&self) -> Vec<f32> {
+        const HUD_BARS: usize = 16;
+        let recent: Vec<f32> = self
+            .envelope
+            .iter()
+            .rev()
+            .take(ENVELOPE_SAMPLES)
+            .rev()
+            .copied()
+            .collect();
+        let mut bars = vec![0.0_f32; HUD_BARS];
+        if recent.is_empty() {
+            return bars;
+        }
+        let step = (recent.len() / HUD_BARS).max(1);
+        let sampled: Vec<f32> = recent.iter().step_by(step).copied().collect();
+        let sampled = &sampled[sampled.len().saturating_sub(HUD_BARS)..];
+        let offset = HUD_BARS - sampled.len();
+        for (slot, level) in bars[offset..].iter_mut().zip(sampled) {
+            *slot = (level.sqrt() * 1.15).clamp(0.0, 1.0);
+        }
+        bars
+    }
+
     /// The last 1.6 seconds of real input level. The band is the recording
     /// instrument: a flat line means silence, and the bars only light while
     /// the key is held.
@@ -2195,16 +2218,13 @@ impl DraftApp {
     ) -> Vec<AnyElement> {
         let app = cx.entity().downgrade();
         let mut hotkey_chips = Vec::new();
-        for (index, name) in HOTKEYS.iter().enumerate() {
-            let Some(config) = HotkeyConfig::named(name) else {
-                continue;
-            };
+        for (index, config) in HotkeyConfig::available().iter().copied().enumerate() {
             hotkey_chips.push(
                 self.chip(
                     &app,
                     palette,
                     HOTKEY_KEYS[index],
-                    config.name,
+                    config.name(),
                     self.hotkey == config,
                 )
                 .flex_1()
@@ -2403,8 +2423,9 @@ impl DraftApp {
             setting_block(
                 palette,
                 "Model file",
-                "A local file. Draft never downloads a model while you dictate.",
+                "A local file, checked against a pinned checksum when it is installed. Draft never downloads a model while you dictate.",
                 div()
+                    .font_family(theme::mono_font())
                     .text_size(px(theme::type_size::META))
                     .line_height(px(15.0))
                     .text_color(palette.tertiary)
@@ -2519,7 +2540,7 @@ impl DraftApp {
             .flex()
             .flex_col()
             .gap(px(theme::space::SM))
-            .py(px(theme::space::MD))
+            .py(px(theme::space::SM))
             .child(
                 div()
                     .font_family(theme::display_font())
@@ -2529,22 +2550,39 @@ impl DraftApp {
                     .text_color(palette.text)
                     .child("Your voice stays on this device."),
             )
-            .child(assurance(
-                palette,
-                "Audio is captured only while you hold the dictation key, then discarded.",
-            ))
-            .child(assurance(
-                palette,
-                "Transcription runs on this machine. Nothing is uploaded.",
-            ))
-            .child(assurance(
-                palette,
-                "The model is installed once and checked against a pinned checksum.",
-            ))
-            .child(assurance(
-                palette,
-                "Finished dictations stay in a local history file that is never synced.",
-            ));
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .w_full()
+                    .pt(px(theme::space::XS))
+                    .child(caption(palette, "WHAT HAPPENS TO ONE DICTATION"))
+                    .child(privacy_step(
+                        palette,
+                        1,
+                        "Capture",
+                        "Only while you hold the key.",
+                    ))
+                    .child(privacy_step(
+                        palette,
+                        2,
+                        "Transcribe",
+                        "On this machine, never a server.",
+                    ))
+                    .child(privacy_step(
+                        palette,
+                        3,
+                        "Insert",
+                        "At your cursor, when Paste is on.",
+                    ))
+                    .child(privacy_step(
+                        palette,
+                        4,
+                        "Discard",
+                        "Audio is dropped. The text is kept.",
+                    )),
+            );
 
         let clear = self
             .text_button(&app, palette, "button:clear-history", "Clear")
@@ -2560,7 +2598,10 @@ impl DraftApp {
             setting_row(
                 palette,
                 "Local history",
-                &format!("{history_count} dictations stored in %LOCALAPPDATA%\\Draft4"),
+                &format!(
+                    "{history_count} dictations stored in {}",
+                    draft_core::paths::data_dir_label()
+                ),
                 clear,
             )
             .into_any_element(),
@@ -2692,14 +2733,7 @@ impl DraftApp {
             .gap(px(6.0))
             .w_full()
             .py(px(theme::space::SM))
-            .child(
-                div()
-                    .text_size(px(theme::type_size::META))
-                    .line_height(px(theme::line::META))
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(palette.tertiary)
-                    .child("BUILT WITH"),
-            )
+            .child(caption(palette, "BUILT WITH"))
             .child(
                 div()
                     .flex()
@@ -2728,33 +2762,29 @@ impl DraftApp {
             .py(px(theme::space::SM))
             .child(
                 div()
-                    .text_size(px(theme::type_size::META))
-                    .line_height(px(theme::line::META))
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(palette.tertiary)
-                    .child("LICENSE"),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .w_full()
+                    .child(caption(palette, "LICENSE"))
+                    .child(licenses),
             )
             .child(
                 div()
                     .text_size(px(theme::type_size::SMALL))
                     .line_height(px(18.0))
                     .text_color(palette.secondary)
-                    .child("Draft is MIT-licensed. The bundled fonts are under the SIL Open Font License. The model is distributed with Draft and is subject to its own terms."),
+                    .child("Draft is MIT-licensed. The parts it bundles keep their own terms."),
             )
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .justify_between()
+                    .flex_col()
                     .w_full()
-                    .child(
-                        div()
-                            .text_size(px(theme::type_size::META))
-                            .line_height(px(theme::line::META))
-                            .text_color(palette.tertiary)
-                            .child("MIT LICENSE"),
-                    )
-                    .child(licenses),
+                    .pt(px(2.0))
+                    .child(credit_line(palette, "Fonts", "SIL Open Font License 1.1").py(px(4.0)))
+                    .child(div().h(px(1.0)).bg(palette.hairline))
+                    .child(credit_line(palette, "Model", "Whisper large-v3-turbo").py(px(4.0))),
             );
 
         vec![
@@ -2874,29 +2904,53 @@ fn secondary(palette: &theme::Palette, text: &str) -> Div {
         .child(text.to_owned())
 }
 
-fn paragraph(palette: &theme::Palette, text: &str) -> Div {
+/// The small all-caps label above a group of rows or points.
+fn caption(palette: &theme::Palette, text: &str) -> Div {
     div()
-        .text_size(px(theme::type_size::BODY))
-        .line_height(px(20.0))
-        .text_color(palette.secondary)
-        .max_w(px(430.0))
+        .text_size(px(theme::type_size::META))
+        .line_height(px(theme::line::META))
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(palette.tertiary)
         .child(text.to_owned())
 }
 
-/// A privacy claim, marked with the accent so the eye can count the promises.
-fn assurance(palette: &theme::Palette, text: &str) -> Div {
+/// One numbered step in the life of a dictation. The number and the label sit
+/// in fixed columns so every description starts on the same line.
+fn privacy_step(palette: &theme::Palette, number: usize, label: &str, text: &str) -> Div {
     div()
         .flex()
         .items_start()
         .gap(px(theme::space::SM))
+        .w_full()
         .child(
             div()
+                .w(px(16.0))
+                .flex_shrink_0()
+                .font_family(theme::mono_font())
+                .text_size(px(11.0))
+                .line_height(px(theme::line::SMALL))
+                .text_color(palette.tertiary)
+                .child(format!("{number:02}")),
+        )
+        .child(
+            div()
+                .w(px(74.0))
+                .flex_shrink_0()
                 .text_size(px(theme::type_size::SMALL))
                 .line_height(px(theme::line::SMALL))
-                .text_color(palette.accent_text)
-                .child("✓"),
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(palette.text)
+                .child(label.to_owned()),
         )
-        .child(paragraph(palette, text))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .text_size(px(theme::type_size::SMALL))
+                .line_height(px(theme::line::SMALL))
+                .text_color(palette.secondary)
+                .child(text.to_owned()),
+        )
 }
 
 /// Ease a control's hover state instead of switching it instantly.
@@ -3099,7 +3153,11 @@ fn open_in_file_manager(path: &Path) {
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(path).spawn();
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         let _ = std::process::Command::new("xdg-open").arg(path).spawn();
     }

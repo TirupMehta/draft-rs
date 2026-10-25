@@ -51,7 +51,7 @@ cloud, no account, and no audio leaving the machine.
 - A one-window interface: Dictate and Settings share the same 680×500 surface,
   so nothing resizes or jumps. Light is the default theme; dark is a designed
   second theme.
-- A click-through recording HUD with a real waveform, elapsed time, and an
+- A click-through recording HUD with a real input meter, elapsed time, and an
   honest Listening / Transcribing state.
 - A microphone picker with a four-second level check and automatic fallback to
   the system default when a saved device disappears.
@@ -62,8 +62,9 @@ cloud, no account, and no audio leaving the machine.
   `draftctl history` commands exist today.
 - A resumable model installer that downloads the pinned F16 GGUF once, verifies
   its SHA-256, and installs it atomically.
-- A per-user Windows installer with Start Menu and optional desktop shortcuts,
-  a clean uninstall, and no console window.
+- A per-user Windows installer that installs to `%LOCALAPPDATA%\Programs\Draft`,
+  puts Draft and **Uninstall Draft** in one Start-menu folder, offers an optional
+  desktop shortcut, and uninstalls everything including the model.
 
 ## Privacy
 
@@ -114,6 +115,10 @@ the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
    `draftctl model install` once to fetch and verify it.
 4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
 
+**To remove it:** Start menu → Draft → **Uninstall Draft**. That one entry
+removes the app, its shortcuts, the speech model, settings, logs, and local
+history. Nothing is left behind in `%LOCALAPPDATA%`.
+
 The installer is **not code-signed yet**, so Windows SmartScreen may show a
 warning on first run. You can verify the download against the release notes, or
 build from source.
@@ -161,8 +166,11 @@ cargo build --workspace --release
 ```
 
 That writes `dist\Draft-Setup-<version>.exe`. Add `-IncludeModel` to embed the
-installed GGUF for an offline install. Uninstall removes the app and shortcuts
-but keeps settings, history, logs, and models under `%LOCALAPPDATA%\Draft4`.
+installed GGUF for an offline install.
+
+Uninstall from **Start → Draft → Uninstall Draft**, or from Settings → Apps.
+It removes the app, both shortcuts, the model, settings, logs, and local history,
+so nothing is left under `%LOCALAPPDATA%\Draft4`.
 
 ## Architecture
 
@@ -170,13 +178,13 @@ but keeps settings, history, logs, and models under `%LOCALAPPDATA%\Draft4`.
 crates/draft-core      settings, history, text cleanup, model catalog, paths
 crates/draft-engine    transcribe.cpp GGUF inference (Vulkan / CPU)
 crates/draft-audio     cpal capture, 16 kHz resample, live level
-crates/draft-hotkey    low-level Windows keyboard hook
+crates/draft-hotkey    hold-to-talk key: platform-neutral config, Windows hook
 crates/draft-paste     clipboard insertion
 crates/draft-cli       the draftctl development binary
 apps/desktop           the GPUI shell (the product UI)
 assets                 app icon and bundled Inter / JetBrains Mono
 bench                  fixtures, baseline data, latency measurements
-docs                   specification, roadmap, performance
+docs                   specification, roadmap, performance, macOS plan
 packaging/windows      the Inno Setup installer
 scripts                build-installer.ps1, the release installer builder
 ```
@@ -189,8 +197,12 @@ type crosses into the core.
 
 Draft 0.2.0 is an early Windows release.
 
-- Windows x64 is the only supported target today; macOS and Linux shells are
-  future work.
+- Windows x64 is the only supported target today. macOS has a real event tap and
+  a real `Cmd+V` paste in the same crates, both compiled for Apple Silicon, and a
+  `macos-14` CI job that builds the workspace on Apple hardware. There is still
+  no `.app`, no window-control module, no signing, and no Metal run, so there is
+  nothing to download. [docs/MACOS.md](docs/MACOS.md) lists what is and is not
+  verified. Linux is not planned.
 - The installer is unsigned.
 - The History pane is not built; the bounded store and `draftctl history` are
   available.

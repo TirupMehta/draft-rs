@@ -21,6 +21,19 @@ pub fn data_dir() -> PathBuf {
         .join(DATA_DIR_NAME)
 }
 
+/// The data folder as a person would type it, for interface copy. It stays the
+/// same on every platform the app ships to, so the settings pane tells the
+/// truth instead of naming a Windows variable on a Mac.
+pub fn data_dir_label() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "%LOCALAPPDATA%\\Draft4"
+    } else if cfg!(target_os = "macos") {
+        "~/Library/Application Support/Draft4"
+    } else {
+        "~/.local/share/Draft4"
+    }
+}
+
 /// Installed GGUF files.
 pub fn models_dir() -> PathBuf {
     data_dir().join("models")

@@ -52,13 +52,14 @@ at `C:\all\Draft`.
 crates/draft-core     settings, history, text cleanup, model catalog, paths
 crates/draft-engine   transcribe.cpp GGUF inference (Vulkan/CPU), one engine
 crates/draft-audio    cpal capture, 16 kHz resample, live level
-crates/draft-hotkey   low-level Windows keyboard hook
-crates/draft-paste    clipboard insert (arboard), copy_text
+crates/draft-hotkey   hold-to-talk key: platform-neutral config, Windows hook,
+                      macOS event tap
+crates/draft-paste    clipboard insert (arboard), copy_text, Cmd+V or Ctrl+V
 crates/draft-cli      the `draftctl` binary
 apps/desktop          the GPUI 0.2.2 shell (the product UI)
 assets                app icon (draft.ico, draft-256.png) and bundled fonts
 bench                 fixtures, baseline data, latency measurements
-docs                  SPEC, ROADMAP, PERFORMANCE
+docs                  SPEC, ROADMAP, PERFORMANCE, MACOS
 packaging/windows     Inno Setup installer script
 scripts               build-installer.ps1, the release installer builder
 ```
@@ -376,3 +377,11 @@ screenshot than in a diff.
 * Real-speech WER parity with v3.5 is unmeasured.
 * The installer is unsigned, so SmartScreen warns on first run.
 * macOS and Linux shells are stubs; Windows x64 is the only supported target.
+  `docs/MACOS.md` is the staged plan. It has not been linked, signed, or run on a
+  Mac: the event tap (`crates/draft-hotkey/src/macos.rs`) and the `Cmd+V` paste
+  (`crates/draft-paste/src/macos.rs`) are written and compile for
+  `aarch64-apple-darwin`, and a `macos-14` CI job builds the workspace, but
+  nothing has granted TCC permissions or typed a transcript. There is still no
+  `.app`, no window-control module, no sign-in module, no notarization, and no
+  Metal verification. Do not claim macOS support until that document's stage 9
+  is green and a person has dictated on a signed build.

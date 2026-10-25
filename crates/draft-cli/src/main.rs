@@ -607,7 +607,7 @@ fn listen(args: &[String]) -> Result<()> {
     let (_listener, events) = draft_hotkey::start(hotkey)?;
     println!(
         "Ready. Hold {} to dictate. Escape cancels. Ctrl+C quits.",
-        hotkey.name
+        hotkey.name()
     );
 
     let mut recorder: Option<draft_audio::Recorder> = None;

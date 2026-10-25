@@ -1475,6 +1475,8 @@ name = "draft-hotkey"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "core-foundation 0.10.0",
+ "core-graphics",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -1485,6 +1487,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "core-graphics",
  "tracing",
  "windows-sys 0.61.2",
 ]

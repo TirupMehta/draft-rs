@@ -2,7 +2,11 @@
 ;
 ; Build with scripts/build-installer.ps1. The app installs under
 ; %LOCALAPPDATA%\Programs\Draft so it never needs an administrator prompt, and
-; user data stays in %LOCALAPPDATA%\Draft4 where the app expects it.
+; user data lives in %LOCALAPPDATA%\Draft4 where the app expects it.
+;
+; Uninstall is meant to leave nothing behind: the Start-menu folder carries an
+; Uninstall entry, and [UninstallDelete] removes the model, settings, logs, and
+; history along with the app.
 
 #ifndef AppVersion
   #define AppVersion "0.2.0"
@@ -62,9 +66,16 @@ Source: "{#ModelPath}"; DestDir: "{localappdata}\Draft4\models"; Flags: onlyifdo
 [InstallDelete]
 Type: files; Name: "{app}\licenses\LICENSE-MIT.txt"
 Type: files; Name: "{app}\licenses\LICENSE-APACHE.txt"
+; An older update path left the previous executable beside the new one. Clear it
+; so an upgrade never leaves a second copy of Draft in the install folder.
+Type: files; Name: "{app}\draft.prev.exe"
+; Earlier builds put a single shortcut at the top of the Start menu. The app
+; and its uninstaller now share one Draft folder.
+Type: files; Name: "{autoprograms}\Draft.lnk"
 
 [Icons]
-Name: "{autoprograms}\Draft"; Filename: "{app}\draft.exe"; WorkingDir: "{app}"
+Name: "{group}\Draft"; Filename: "{app}\draft.exe"; WorkingDir: "{app}"
+Name: "{group}\Uninstall Draft"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Draft"; Filename: "{app}\draft.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
@@ -75,6 +86,14 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\draft.exe"; Description: "Launch Draft"; Flags: nowait postinstall skipifsilent
 
+[Messages]
+; Say exactly what is about to go, because this is the only uninstall path that
+; deletes the model and the local history.
+ConfirmUninstall=Draft, its speech model, settings, and local history will be removed from this computer. This cannot be undone. Do you want to continue?
+
 [UninstallDelete]
-; The app writes logs and models under %LOCALAPPDATA%\Draft4, which is user
-; data and intentionally survives uninstall.
+; The app writes the model, settings, logs, and history under
+; %LOCALAPPDATA%\Draft4. Removing that folder is what makes the uninstall
+; complete; the app and its shortcuts are tracked and removed by Inno.
+Type: filesandordirs; Name: "{localappdata}\Draft4"
+Type: filesandordirs; Name: "{app}\licenses"

@@ -85,3 +85,28 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build --workspace --release
+
+  # The Mac build is a real build, not a cargo check on a Windows machine. It
+  # compiles the event tap and the Metal engine with Apple's toolchain, which is
+  # the only way to know the macOS modules link. It does not run a dictation:
+  # an event tap needs Accessibility and Input Monitoring, and a runner cannot
+  # grant either. Behaviour on a Mac still needs a person at the keyboard.
+  macos:
+    name: macOS arm64
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the native toolchain
+        run: |
+          cmake --version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun -f metal
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build --workspace --release
