@@ -50,6 +50,19 @@ cp "$root/assets/fonts/Inter-OFL.txt" "$app/Contents/Resources/licenses/Inter-OF
 cp "$root/assets/fonts/JetBrainsMono-OFL.txt" \
     "$app/Contents/Resources/licenses/JetBrainsMono-OFL.txt"
 
+# A DMG is the only installer on macOS, so a release build carries the F16
+# artifact. `main.rs` reads it from Resources/models when the data folder has no
+# model, which keeps the first dictation offline.
+if [[ -n "${MODEL_PATH:-}" ]]; then
+    if [[ ! -f "$MODEL_PATH" ]]; then
+        echo "MODEL_PATH does not exist: $MODEL_PATH" >&2
+        exit 1
+    fi
+    mkdir -p "$app/Contents/Resources/models"
+    cp "$MODEL_PATH" "$app/Contents/Resources/models/whisper-large-v3-turbo-F16.gguf"
+    echo "bundled model: $MODEL_PATH"
+fi
+
 # The repository ships one 256 px source icon. Render the full iconset from it
 # so iconutil always gets every slot; the 512/1024 entries are upscaled and can
 # be replaced when a native 1024 asset is tracked.
@@ -81,9 +94,16 @@ codesign --force --sign "$identity" "$app"
 codesign --verify --strict --verbose=2 "$app"
 
 if [[ "${MAKE_DMG:-0}" == "1" ]]; then
-    dmg="$root/dist/Draft-$version.dmg"
-    rm -f "$dmg"
-    hdiutil create -volname Draft -srcfolder "$app" -ov -format UDZO "$dmg" >/dev/null
+    arch="$(uname -m)"
+    dmg="$root/dist/Draft-$version-macos-$arch.dmg"
+    stage="$root/dist/dmg-stage"
+    rm -rf "$stage" "$dmg"
+    mkdir -p "$stage"
+    # ditto preserves the signature and extended attributes better than cp.
+    ditto "$app" "$stage/Draft.app"
+    ln -s /Applications "$stage/Applications"
+    hdiutil create -volname Draft -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
+    rm -rf "$stage"
     echo "built $dmg"
 fi
 

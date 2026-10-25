@@ -359,11 +359,33 @@ fn cli_settings_path(args: &[String]) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// A model shipped inside the macOS app bundle.
+///
+/// The DMG is the installer on macOS, so the F16 artifact lives in
+/// `Contents/Resources/models` and is read from there. That keeps the first
+/// launch offline and avoids copying a second 1.6 GB into the data folder.
+#[cfg(target_os = "macos")]
+fn bundled_model_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let resources = exe.parent()?.parent()?.join("Resources").join("models");
+    let path = resources.join(draft_core::models::DEFAULT_MODEL.file_name);
+    path.is_file().then_some(path)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bundled_model_path() -> Option<PathBuf> {
+    None
+}
+
 fn default_model_path() -> PathBuf {
     if let Ok(path) = std::env::var("DRAFT_MODEL_PATH") {
         return PathBuf::from(path);
     }
-    draft_core::paths::default_model_path()
+    let default = draft_core::paths::default_model_path();
+    if default.is_file() {
+        return default;
+    }
+    bundled_model_path().unwrap_or(default)
 }
 
 fn help() -> &'static str {

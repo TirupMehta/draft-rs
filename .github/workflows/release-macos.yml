@@ -1,0 +1,74 @@
+name: release-macos
+
+# Builds the macOS installer on Apple hardware, bundles the pinned F16 model,
+# ad-hoc signs it, and publishes the DMG to a GitHub release. A Developer ID
+# signature and notarization need repository secrets; see docs/MACOS.md stage 8.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v0.2.0-macos.1)"
+        required: true
+        default: "v0.2.0-macos.1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS arm64 release
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore the pinned model
+        id: model
+        uses: actions/cache@v4
+        with:
+          path: model/whisper-large-v3-turbo-F16.gguf
+          key: whisper-large-v3-turbo-F16-1625935488-c8506ddf
+
+      - name: Download and verify the model
+        if: steps.model.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p model
+          curl -L --fail --retry 3 --retry-delay 5 \
+            -o model/whisper-large-v3-turbo-F16.gguf \
+            https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-F16.gguf
+          echo "c8506ddfa3d4eb9279170d722a75422db00dbdbd7618531bbb81926e0598eb8f  model/whisper-large-v3-turbo-F16.gguf" \
+            | shasum -a 256 -c -
+
+      - name: Build the DMG
+        run: MODEL_PATH="model/whisper-large-v3-turbo-F16.gguf" MAKE_DMG=1 bash scripts/build-macos-app.sh
+
+      - name: Write the checksum
+        run: |
+          cd dist
+          dmg=$(ls Draft-*-macos-*.dmg)
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          cat "$dmg.sha256"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=$(ls dist/Draft-*-macos-*.dmg)
+          sum="$dmg.sha256"
+          if gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.tag }}" "$dmg" "$sum" \
+              --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "${{ inputs.tag }}" "$dmg" "$sum" \
+              --repo "${{ github.repository }}" \
+              --title "Draft 0.2.0 for macOS (Apple Silicon preview)" \
+              --notes-file packaging/macos/RELEASE_NOTES.md \
+              --prerelease
+          fi

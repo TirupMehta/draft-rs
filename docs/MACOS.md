@@ -230,9 +230,16 @@ the license texts to `Contents/Resources/licenses`, where codesign seals them.
 `open_licenses()` still checks beside the executable first, then that Resources
 folder on macOS.
 
+Set `MODEL_PATH=/path/to/whisper-large-v3-turbo-F16.gguf` to bundle the model in
+`Contents/Resources/models`; `main.rs` reads it there when the data folder has
+none, so the first dictation needs no network. The `.github/workflows/release-macos.yml`
+workflow downloads the pinned artifact, verifies its SHA-256, builds the DMG,
+writes a checksum, and publishes it to a prerelease.
+
 The default signature is ad-hoc (`-`), which is what the macOS runner can do
 without secrets. Set `CODESIGN_IDENTITY="Developer ID Application: ..."` to sign
-with a real certificate. `MAKE_DMG=1` also writes `dist/Draft-<version>.dmg`.
+with a real certificate. `MAKE_DMG=1` writes
+`dist/Draft-<version>-macos-<arch>.dmg` with an Applications symlink.
 Notarization is not automated and has not been run: it needs an Apple Developer
 account, a `notarytool` keychain profile, and the same Developer ID. See stage 8.
 
