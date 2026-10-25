@@ -123,7 +123,10 @@ pub use windows::HotkeyListener;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-pub use macos::HotkeyListener;
+pub use macos::{
+    HotkeyListener, Permissions, PrivacyPane, open_privacy_settings, permissions,
+    request_input_monitoring,
+};
 
 #[cfg(windows)]
 pub fn start(config: HotkeyConfig) -> anyhow::Result<(HotkeyListener, Receiver<HotkeyEvent>)> {

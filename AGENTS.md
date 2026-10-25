@@ -376,12 +376,12 @@ screenshot than in a diff.
 * The history pane is not built; the store and `draftctl history` exist.
 * Real-speech WER parity with v3.5 is unmeasured.
 * The installer is unsigned, so SmartScreen warns on first run.
-* macOS and Linux shells are stubs; Windows x64 is the only supported target.
-  `docs/MACOS.md` is the staged plan. It has not been linked, signed, or run on a
-  Mac: the event tap (`crates/draft-hotkey/src/macos.rs`) and the `Cmd+V` paste
-  (`crates/draft-paste/src/macos.rs`) are written and compile for
-  `aarch64-apple-darwin`, and a `macos-14` CI job builds the workspace, but
-  nothing has granted TCC permissions or typed a transcript. There is still no
-  `.app`, no window-control module, no sign-in module, no notarization, and no
-  Metal verification. Do not claim macOS support until that document's stage 9
-  is green and a person has dictated on a signed build.
+* macOS has a compiled shell but no verified runtime. `docs/MACOS.md` is the
+  staged plan: the active event tap, `Cmd+V` paste, AppKit window behaviour,
+  LaunchAgent sign-in, live permission rows, and the `Draft.app` bundle script
+  all build on the `macos-14` runner, which also ad-hoc signs the bundle and
+  writes a DMG. Nothing has granted TCC permissions, typed a transcript, or run
+  a signed build; Developer ID signing and notarization need credentials. Do not
+  claim macOS support until the document's stage 8 is done and a person has
+  dictated on a signed build.
+* Linux remains a stub.

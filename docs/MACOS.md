@@ -4,13 +4,13 @@ Draft is a Windows app today. This document is the plan for a macOS build, what
 is already neutral, what is genuinely missing, and what cannot be confirmed
 without an Apple machine.
 
-**No macOS build has been linked, signed, or run.** The two input modules
-(`draft-hotkey`, `draft-paste`) now exist and compile for `aarch64-apple-darwin`
-with `cargo clippy -D warnings` from this Windows machine, and a `macos-14` job
-in `.github/workflows/check.yml` builds the workspace on Apple hardware. That
-verifies compilation, not behaviour: nothing below has been exercised by a
-person on a Mac, and there is no `.app` to download. Treat every step as
-unverified until a Mac produces a passing build and a real dictation.
+**No macOS build has been signed with a Developer ID, notarized, or used by a
+person on a Mac.** The `macos-14` job in `.github/workflows/check.yml` compiles
+the workspace, links the Metal engine, builds `Draft.app`, ad-hoc signs it, and
+writes a DMG. That verifies compilation and bundle structure, not behaviour:
+nothing below has been exercised with a real keyboard, TCC grants, or a
+downloaded build. Treat every runtime claim as unverified until a signed build
+dictates on a Mac.
 
 ---
 
@@ -102,9 +102,15 @@ events; the callback re-enables the tap and logs a warning. A tap left disabled
 looks exactly like a key that stopped working, which is the failure this app
 must never present silently.
 
-What is still missing here is the permission interface: the app shows the
-honest error text from `start()` in its error strip, but there is no button that
-opens the exact System Settings pane, and no live "granted / not granted" state.
+The permission interface is now in Settings → Dictation on macOS. Every render
+reads `AXIsProcessTrusted` and `IOHIDCheckAccess` directly, so a revoked grant
+cannot keep showing "Granted", and each row opens the exact pane
+(`Privacy_Accessibility` / `Privacy_ListenEvent`) through `/usr/bin/open`.
+`Try again` restarts the tap without a relaunch, and the error surface points at
+the privacy pane instead of the audio pane when the tap is what failed. Input
+Monitoring is requested once through `IOHIDRequestAccess`; after that, opening
+the pane is the reliable path. The code compiles on the macOS runner. Nobody has
+clicked it on a Mac, granted either permission, or confirmed the panes open.
 
 ### 2.2 Paste
 
@@ -164,7 +170,11 @@ rather than new.
 `HKCU\...\Run` has a macOS counterpart in `apps/desktop/src/startup.rs`: a
 LaunchAgent plist at `~/Library/LaunchAgents/in.tirup.draft.plist`, written with
 `ProgramArguments = [<current exe>, --background]`, `RunAtLoad`, `Aqua` session,
-and `Interactive` process type. Enabling has the same meaning as on Windows: it
+and `Interactive` process type. Inside a `.app`, the plist uses
+`[/usr/bin/open, -a, <Draft.app>, --args, --background]` instead: launching
+`Contents/MacOS/draft` directly skips LaunchServices and leaves the app with the
+wrong activation policy and no menu-bar identity. Both forms are covered by
+unit tests that run on the macOS runner. Enabling has the same meaning as on Windows: it
 applies at the next sign-in. Disabling removes the plist. A path containing `&`
 is escaped; there is a unit test for it.
 
@@ -210,6 +220,21 @@ A universal binary (`aarch64-apple-darwin` + `x86_64-apple-darwin`) needs a
 fat native library, or two builds shipped as two downloads. Start with Apple
 Silicon only; an Intel Mac build is a second release, not a first one.
 
+### 2.6 The `.app` bundle
+
+`bash scripts/build-macos-app.sh` assembles `dist/Draft.app` from the release
+binary. It writes `Contents/Info.plist` from `packaging/macos/Info.plist`
+(`LSUIElement`, `NSMicrophoneUsageDescription`, bundle id `in.tirup.draft`,
+minimum macOS 13), derives `Draft.icns` from `assets/draft-256.png`, and copies
+the license texts to `Contents/MacOS/licenses`, the same location
+`open_licenses()` expects beside the executable.
+
+The default signature is ad-hoc (`-`), which is what the macOS runner can do
+without secrets. Set `CODESIGN_IDENTITY="Developer ID Application: ..."` to sign
+with a real certificate. `MAKE_DMG=1` also writes `dist/Draft-<version>.dmg`.
+Notarization is not automated and has not been run: it needs an Apple Developer
+account, a `notarytool` keychain profile, and the same Developer ID. See stage 8.
+
 ---
 
 ## 3. Staged plan
@@ -220,19 +245,20 @@ Each stage ends in something observable. Do not skip a verification.
 |---|---|---|
 | 0 | A Mac with Xcode command line tools, Rust, CMake, and the Metal toolchain | `cargo check -p draft-core` passes |
 | 1 | **Written.** `crates/draft-hotkey/src/macos.rs`: active tap, keycode table, `FlagsChanged`, Escape, re-enable; `start()` returns a listener whose `Drop` stops the loop | A debug build prints real key events to the log and suppresses Right Control |
-| 2 | Accessibility + Input Monitoring prompts, with honest state in the UI: "Grant Accessibility" with a button that opens the exact Settings pane | Denying permission shows a real error, not a silent dead key |
+| 2 | **Written.** Live permission state in Settings → Dictation; each row opens the exact pane; `Try again` restarts the tap; the error surface routes a tap failure to Privacy | A Mac grants and revokes each permission, the row follows, and denying shows a real error rather than a silent dead key |
 | 3 | **Written.** `crates/draft-paste/src/macos.rs`: Cmd+V from a private source, same modifier wait | A transcript lands in TextEdit at the cursor |
-| 4 | `window_control.rs` macOS module: hide/show, HUD level and click-through, reduce-motion | The HUD floats over a full-screen app and never takes focus |
-| 5 | **Written (LaunchAgent).** `startup.rs` macOS module | Toggle on, sign out, sign in, Draft is in the menu bar |
+| 4 | **Written (unverified).** `window_control.rs` macOS module: hide/show, HUD level and click-through, reduce-motion | The HUD floats over a full-screen app and never takes focus |
+| 5 | **Written (LaunchAgent).** `startup.rs` macOS module, bundle-aware through `/usr/bin/open -a` | Toggle on, sign out, sign in, Draft is in the menu bar |
 | 6 | Metal engine build and a real transcription | `draftctl transcribe bench/fixtures/jfk.wav` returns the verified text |
-| 7 | Bundle: `Draft.app`, `Info.plist` (`LSUIElement`, `NSMicrophoneUsageDescription`, `CFBundleIdentifier`), icon set from `draft-256.png` | The `.app` launches from Finder with no terminal |
-| 8 | `codesign` with a Developer ID, `notarytool` submit, `stapler staple`, DMG | A downloaded DMG opens without a Gatekeeper block |
-| 9 | **Added.** A `macos-14` job in `.github/workflows/check.yml` runs fmt, clippy, test, and a release build | A green run on a machine that is not the author's |
+| 7 | **Written.** `scripts/build-macos-app.sh` assembles `Draft.app` from `packaging/macos/Info.plist`, the icon, and the licenses; CI ad-hoc signs it and writes a DMG | The CI bundle launches from Finder with no terminal (device check pending) |
+| 8 | Documented; ad-hoc signing and DMG creation run in CI. Developer ID, `notarytool`, and stapling need an Apple account and secrets | A downloaded DMG opens without a Gatekeeper block |
+| 9 | **Green on `43952b5`.** The `macos-14` job runs fmt, clippy, test, a release build, the bundle, and an ad-hoc codesign verify | A green run on a machine that is not the author's |
 
-Stages 1 and 3 are code-complete and compile for `aarch64-apple-darwin`, but
-their "done when" columns are still unmet: no Mac has run them. The `macos-14`
-job verifies compilation and linking on Apple hardware; it cannot grant TCC
-permissions, so it cannot verify the tap itself.
+Stages 1, 3, 4, 5, and 7 are code-complete and compile for
+`aarch64-apple-darwin`, but their "done when" columns are still unmet: no Mac
+has run them. The `macos-14` job verifies compilation, linking, and bundle
+structure on Apple hardware; it cannot grant TCC permissions, so it cannot
+verify the tap, the permission rows, or the HUD.
 
 Stage 8 is not optional polish. TCC permissions are tied to the code signature;
 an unsigned build loses Accessibility on every rebuild, which makes stages 1
@@ -254,13 +280,18 @@ documentation too:
   `start()` returns at the right moment.
 - Whether F8 and F9 reach the tap with the default media-key behaviour.
 - Whether the two hand-declared symbols (`CGEventTapEnable`,
-  `CGEventSourceKeyState`) link; the `macos-14` job answers this one.
+  `CGEventSourceKeyState`) and the permission symbols link. **Answered:** the
+  green `macos-14` run links them.
 - Whether the HUD renders correctly over a full-screen Space.
 - Whether `NSStatusWindowLevel` is high enough above other floating panels.
 - Whether the Metal backend produces the same transcript as Vulkan.
-- Whether the TCC prompts appear, and what they say.
+- Whether the TCC prompts appear, what they say, and whether the permission rows
+  open the exact panes.
+- Whether `open -a Draft.app --args --background` leaves Draft in the menu bar
+  after sign-in.
 - Whether a notarized DMG opens cleanly on a machine that has never seen Draft.
-- Whether the app passes `codesign --verify --deep --strict`.
+- Whether a Developer ID signature verifies. **Partly answered:** the CI run
+  proves `codesign --verify --deep --strict` passes for the ad-hoc bundle.
 
 No screenshot, latency number, or "works on macOS" claim should appear in the
 README, the site, or a release note until stage 9 is green and a person has used

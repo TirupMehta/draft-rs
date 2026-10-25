@@ -59,6 +59,88 @@ unsafe extern "C" {
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
 }
 
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    /// Returns a CoreFoundation `Boolean`, which is an unsigned byte.
+    fn AXIsProcessTrusted() -> u8;
+}
+
+#[link(name = "IOKit", kind = "framework")]
+unsafe extern "C" {
+    fn IOHIDCheckAccess(request_type: u32) -> u32;
+    fn IOHIDRequestAccess(request_type: u32) -> u8;
+}
+
+/// `kIOHIDRequestTypeListenEvent`: observing keys, which is what an event tap
+/// needs. Posting synthetic keys is a separate grant Draft does not use.
+const LISTEN_EVENT: u32 = 1;
+/// `kIOHIDAccessTypeGranted`.
+const ACCESS_GRANTED: u32 = 0;
+
+/// The two grants an active event tap needs. They are different panes in
+/// System Settings and neither one implies the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Permissions {
+    pub accessibility: bool,
+    pub input_monitoring: bool,
+}
+
+impl Permissions {
+    pub fn granted(self) -> bool {
+        self.accessibility && self.input_monitoring
+    }
+}
+
+/// The System Settings pane that grants a permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrivacyPane {
+    Accessibility,
+    InputMonitoring,
+}
+
+impl PrivacyPane {
+    fn url(self) -> &'static str {
+        match self {
+            Self::Accessibility => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            Self::InputMonitoring => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
+        }
+    }
+}
+
+/// Read the grants straight from the system on every call. A cached value would
+/// keep claiming "granted" after someone revoked access in System Settings.
+pub fn permissions() -> Permissions {
+    Permissions {
+        accessibility: unsafe { AXIsProcessTrusted() != 0 },
+        input_monitoring: unsafe { IOHIDCheckAccess(LISTEN_EVENT) == ACCESS_GRANTED },
+    }
+}
+
+/// Show the Input Monitoring prompt. The system only shows it once; opening the
+/// pane is the reliable path after the person has already answered.
+pub fn request_input_monitoring() {
+    unsafe { IOHIDRequestAccess(LISTEN_EVENT) };
+}
+
+/// Open the exact Privacy & Security pane for a permission.
+///
+/// `open` is used instead of `NSWorkspace` because the URL scheme is the only
+/// documented way to deep-link a privacy pane, and it needs no extra framework.
+pub fn open_privacy_settings(pane: PrivacyPane) -> std::io::Result<()> {
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(pane.url())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!("open exited with {status}")))
+    }
+}
+
 /// The macOS keycode for a configured key.
 ///
 /// `Pause` and `Scroll Lock` have no Apple keyboard equivalent, so they have no

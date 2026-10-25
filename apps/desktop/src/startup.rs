@@ -146,7 +146,11 @@ mod macos {
     }
 
     fn plist(exe: &Path) -> String {
-        let exe = escape(&exe.to_string_lossy());
+        let (program, arguments) = launch_command(exe);
+        let mut items = String::new();
+        for argument in std::iter::once(&program).chain(arguments.iter()) {
+            items.push_str(&format!("    <string>{}</string>\n", escape(argument)));
+        }
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -156,9 +160,7 @@ mod macos {
   <string>{LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{exe}</string>
-    <string>--background</string>
-  </array>
+{items}  </array>
   <key>LimitLoadToSessionType</key>
   <string>Aqua</string>
   <key>ProcessType</key>
@@ -168,6 +170,30 @@ mod macos {
 </dict>
 </plist>
 "#
+        )
+    }
+
+    /// Launching `Draft.app/Contents/MacOS/draft` directly skips LaunchServices,
+    /// so the app comes up with the wrong activation policy and no Dock/menu-bar
+    /// identity. Inside a bundle, sign-in opens the bundle instead.
+    fn launch_command(exe: &Path) -> (String, Vec<String>) {
+        if let Some(bundle) = exe.ancestors().find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == std::ffi::OsStr::new("app"))
+        }) {
+            return (
+                "/usr/bin/open".to_owned(),
+                vec![
+                    "-a".to_owned(),
+                    bundle.to_string_lossy().into_owned(),
+                    "--args".to_owned(),
+                    "--background".to_owned(),
+                ],
+            );
+        }
+        (
+            exe.to_string_lossy().into_owned(),
+            vec!["--background".to_owned()],
         )
     }
 
@@ -188,10 +214,20 @@ mod macos {
         /// part that can break the document.
         #[test]
         fn the_plist_escapes_the_executable_path() {
-            let plist = super::plist(std::path::Path::new("/Users/a&b/Draft.app/draft"));
-            assert!(plist.contains("/Users/a&amp;b/Draft.app/draft"));
+            let plist = super::plist(std::path::Path::new("/Users/a&b/Applications/draft"));
+            assert!(plist.contains("/Users/a&amp;b/Applications/draft"));
             assert!(plist.contains("<string>--background</string>"));
             assert!(plist.contains("<key>RunAtLoad</key>"));
+        }
+
+        #[test]
+        fn a_bundled_app_launches_through_launch_services() {
+            let plist = super::plist(std::path::Path::new(
+                "/Applications/Draft.app/Contents/MacOS/draft",
+            ));
+            assert!(plist.contains("<string>/usr/bin/open</string>"));
+            assert!(plist.contains("<string>/Applications/Draft.app</string>"));
+            assert!(plist.contains("<string>--background</string>"));
         }
     }
 }

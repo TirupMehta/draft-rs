@@ -110,3 +110,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build --workspace --release
+      # An ad-hoc signature is the most a stock runner can prove: the bundle
+      # structure, Info.plist, icon, and the codesign call itself. A Developer ID
+      # and notarization need repository secrets (docs/MACOS.md stage 8).
+      - name: Build the app bundle
+        run: MAKE_DMG=1 bash scripts/build-macos-app.sh
+      - name: Verify the app bundle
+        run: |
+          plutil -lint dist/Draft.app/Contents/Info.plist
+          codesign --verify --deep --strict --verbose=2 dist/Draft.app
+          test -f dist/Draft-*.dmg

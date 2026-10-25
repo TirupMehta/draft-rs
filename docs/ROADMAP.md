@@ -113,7 +113,12 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 
 ## M6 - Desktop everywhere
 
-- [ ] macOS shell and Metal inference.
+- [x] macOS input layer, paste, AppKit window behaviour, LaunchAgent sign-in,
+      live permission onboarding, and a `Draft.app` bundle that builds and
+      ad-hoc signs on the `macos-14` runner.
+- [ ] macOS runtime verification on a real Mac: event-tap suppression, TCC
+      grants, HUD over full-screen Spaces, and Metal transcript parity.
+- [ ] Developer ID signing and notarization (needs an Apple account and secrets).
 - [ ] Linux shell (X11 + Wayland) and Vulkan inference.
 - [ ] One settings schema and history store across all three.
 - [ ] Platform permission and device-recovery parity.

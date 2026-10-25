@@ -1419,9 +1419,20 @@ impl DraftApp {
                 parts.push(secondary(palette, "This stays on your device.").into_any_element());
             }
             Phase::Error => {
-                parts.push(
-                    headline("The microphone needs a hand", palette.danger).into_any_element(),
-                );
+                let hotkey_failure = self.hotkey_error.is_some();
+                #[cfg(target_os = "macos")]
+                let title = if hotkey_failure {
+                    "macOS needs permission"
+                } else {
+                    "The microphone needs a hand"
+                };
+                #[cfg(not(target_os = "macos"))]
+                let title = if hotkey_failure {
+                    "The dictation key is unavailable"
+                } else {
+                    "The microphone needs a hand"
+                };
+                parts.push(headline(title, palette.danger).into_any_element());
                 parts.push(
                     secondary(
                         palette,
@@ -1433,25 +1444,49 @@ impl DraftApp {
                     )
                     .into_any_element(),
                 );
-                parts.push(
-                    div()
-                        .id("error-audio-settings")
-                        .px(px(12.0))
-                        .py(px(5.0))
-                        .rounded_full()
-                        .bg(palette.accent_soft)
-                        .text_size(px(theme::type_size::SMALL))
-                        .line_height(px(theme::line::SMALL))
-                        .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_color(palette.accent_text)
-                        .cursor_pointer()
-                        .hover(|style| style.text_color(palette.text))
+                let mut action = div()
+                    .id("error-action")
+                    .px(px(12.0))
+                    .py(px(5.0))
+                    .rounded_full()
+                    .bg(palette.accent_soft)
+                    .text_size(px(theme::type_size::SMALL))
+                    .line_height(px(theme::line::SMALL))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(palette.accent_text)
+                    .cursor_pointer()
+                    .hover(|style| style.text_color(palette.text));
+                if hotkey_failure {
+                    #[cfg(target_os = "macos")]
+                    {
+                        action = action
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.notice = Some(match draft_hotkey::open_privacy_settings(
+                                    draft_hotkey::PrivacyPane::Accessibility,
+                                ) {
+                                    Ok(()) => "Opened Privacy settings. Grant Accessibility and Input Monitoring, then relaunch Draft.".to_owned(),
+                                    Err(error) => format!("Could not open System Settings: {error}"),
+                                });
+                                cx.notify();
+                            }))
+                            .child("Open Privacy settings");
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        action = action
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_section(Section::Dictation, window, cx)
+                            }))
+                            .child("Open dictation settings");
+                    }
+                } else {
+                    action = action
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.open_section(Section::Audio, window, cx)
                         }))
-                        .child("Open audio settings")
-                        .into_any_element(),
-                );
+                        .child("Open audio settings");
+                }
+                parts.push(action.into_any_element());
             }
         }
         div()
@@ -2260,7 +2295,7 @@ impl DraftApp {
                 this.set_launch_at_startup(enabled, cx);
             }));
 
-        vec![
+        let mut rows = vec![
             setting_block(
                 palette,
                 "Dictation key",
@@ -2287,6 +2322,98 @@ impl DraftApp {
                 "Start at sign-in",
                 "Launch Draft in the tray when you sign in.",
                 startup,
+            )
+            .into_any_element(),
+        ];
+        #[cfg(target_os = "macos")]
+        rows.extend(self.macos_permission_rows(palette, &app, cx));
+        rows
+    }
+
+    /// Live macOS permission state with a button that opens the exact pane.
+    ///
+    /// The system is read on every render rather than cached: a stale "granted"
+    /// after someone revokes access is precisely the lie this interface avoids.
+    #[cfg(target_os = "macos")]
+    fn macos_permission_rows(
+        &mut self,
+        palette: &theme::Palette,
+        app: &WeakEntity<DraftApp>,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let state = draft_hotkey::permissions();
+        let entries = [
+            (
+                "Accessibility",
+                "Lets Draft see and swallow the dictation key.",
+                state.accessibility,
+                draft_hotkey::PrivacyPane::Accessibility,
+                "permission:accessibility",
+            ),
+            (
+                "Input Monitoring",
+                "Lets Draft observe the key at all on recent macOS versions.",
+                state.input_monitoring,
+                draft_hotkey::PrivacyPane::InputMonitoring,
+                "permission:input-monitoring",
+            ),
+        ];
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for (title, description, granted, pane, key) in entries {
+            let open = self
+                .text_button(app, palette, key, "Open Settings")
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if pane == draft_hotkey::PrivacyPane::InputMonitoring {
+                        draft_hotkey::request_input_monitoring();
+                    }
+                    this.notice = Some(match draft_hotkey::open_privacy_settings(pane) {
+                        Ok(()) => {
+                            format!("Opened {title} settings. Grant Draft access, then relaunch.")
+                        }
+                        Err(error) => format!("Could not open System Settings: {error}"),
+                    });
+                    cx.notify();
+                }));
+            let control = div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(if granted {
+                            palette.accent_text
+                        } else {
+                            palette.danger
+                        })
+                        .child(if granted { "Granted" } else { "Not granted" }),
+                )
+                .child(open);
+            rows.push(setting_row(palette, title, description, control).into_any_element());
+        }
+
+        let mut content = div().flex().flex_col().w_full().children(rows);
+        if !state.granted() {
+            content = content.child(
+                div().flex().justify_end().pt(px(2.0)).child(
+                    self.text_button(app, palette, "permission:retry", "Try again")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let hotkey = this.hotkey;
+                            this.choose_hotkey(hotkey, cx);
+                        })),
+                ),
+            );
+        }
+
+        vec![
+            setting_block(
+                palette,
+                "Permissions",
+                "macOS grants these per app. Change one, then relaunch Draft.",
+                content,
             )
             .into_any_element(),
         ]
