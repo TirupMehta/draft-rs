@@ -8,7 +8,11 @@ rust-version.workspace = true
 description = "Warm local speech engine for Draft."
 
 [features]
-default = ["vulkan"]
+# The accelerated backend is chosen by the platform, not by a feature a caller
+# has to remember: Vulkan on Windows, Metal on macOS. The features stay so an
+# explicit `--features cuda` or a CPU-only `--no-default-features` build still
+# works.
+default = []
 vulkan = ["transcribe-cpp/vulkan"]
 metal = ["transcribe-cpp/metal"]
 cuda = ["transcribe-cpp/cuda"]
@@ -17,3 +21,17 @@ cuda = ["transcribe-cpp/cuda"]
 thiserror.workspace = true
 tracing.workspace = true
 transcribe-cpp = { version = "0.4.0", default-features = false }
+
+# transcribe.cpp builds exactly the backends its features name. Vulkan on macOS
+# makes CMake fail looking for a Vulkan SDK that Apple machines do not have, and
+# Metal on Windows would link frameworks that are not there, so each platform
+# names its own. Linux keeps the CPU backend until that shell exists.
+[target.'cfg(target_os = "windows")'.dependencies]
+transcribe-cpp = { version = "0.4.0", default-features = false, features = [
+  "vulkan",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+transcribe-cpp = { version = "0.4.0", default-features = false, features = [
+  "metal",
+] }

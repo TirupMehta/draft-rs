@@ -2,8 +2,11 @@
 //!
 //! The main window hides to the tray instead of quitting, and the dictation
 //! HUD is a transparent, topmost, click-through popup. Both need the raw
-//! HWND. Everything here is a no-op away from Windows so the shell still
-//! builds on macOS and Linux while those backends are being wired.
+//! native window: an `HWND` on Windows, the `NSView` pointer on macOS. The
+//! handle is passed around as an `isize` so the call sites do not care.
+//!
+//! Everything here is a no-op on Linux so the shell still builds while that
+//! backend is being wired.
 
 use gpui::Window;
 
@@ -80,39 +83,33 @@ pub fn set_hud_visible(hwnd: isize, visible: bool) {
 }
 
 /// Make the HUD a topmost, non-activating, click-through popup.
+#[cfg(target_os = "windows")]
 pub fn configure_hud(hwnd: isize) {
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-            SetWindowLongPtrW, SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
-        };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SetWindowLongPtrW, SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    };
 
-        if hwnd == 0 {
-            return;
-        }
-        let hwnd = hwnd as *mut _;
-        unsafe {
-            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            SetWindowLongPtrW(
-                hwnd,
-                GWL_EXSTYLE,
-                style | (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW) as isize,
-            );
-            SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
-        }
+    if hwnd == 0 {
+        return;
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = hwnd;
+    let hwnd = hwnd as *mut _;
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            style | (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW) as isize,
+        );
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
     }
 }
 
@@ -137,9 +134,6 @@ pub fn set_title_bar_dark(hwnd: isize, dark: bool) {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn set_title_bar_dark(_hwnd: isize, _dark: bool) {}
-
 /// Whether the system asks for animations. Windows exposes this in the
 /// accessibility settings, and an interface that respects it should not move
 /// when the person has turned motion off.
@@ -161,30 +155,159 @@ pub fn system_animations_enabled() -> bool {
     enabled != 0
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn system_animations_enabled() -> bool {
-    true
+/// AppKit window behavior for the main window and the HUD.
+///
+/// GPUI creates both windows, but it does not expose the two things Draft
+/// needs: the HUD has to float above every other application and ignore
+/// clicks, and the main window has to disappear without the process exiting.
+#[cfg(target_os = "macos")]
+mod macos {
+    use gpui::Window;
+    use objc2::MainThreadMarker;
+    use objc2::rc::Retained;
+    use objc2_app_kit::{NSApplication, NSView, NSWindow, NSWindowCollectionBehavior, NSWorkspace};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    /// `NSStatusWindowLevel`. Above the normal and floating levels and below
+    /// the menu bar, which is where a dictation HUD belongs.
+    const STATUS_WINDOW_LEVEL: isize = 25;
+
+    /// The `NSView` GPUI renders into, as an opaque handle. Windows stores an
+    /// `HWND`; macOS stores the view because every window call goes through
+    /// it and the view cannot be confused with a window number.
+    pub fn hwnd(window: &Window) -> Option<isize> {
+        let handle = HasWindowHandle::window_handle(window).ok()?;
+        match handle.as_raw() {
+            RawWindowHandle::AppKit(handle) => Some(handle.ns_view.as_ptr() as isize),
+            _ => None,
+        }
+    }
+
+    /// The window that owns a view handle.
+    ///
+    /// `NSView::window()` returns `None` while a view is not in a window, so
+    /// this is also the honest "the window is gone" case.
+    fn window_for(handle: isize) -> Option<Retained<NSWindow>> {
+        if handle == 0 {
+            return None;
+        }
+        // SAFETY: the handle came from `hwnd()`, which borrows it from a live
+        // GPUI window, and every caller holds that window for the call.
+        let view = unsafe { &*(handle as *const NSView) };
+        view.window()
+    }
+
+    /// Hide the window without tearing down the application.
+    pub fn hide(window: &Window) -> bool {
+        let Some(window) = hwnd(window).and_then(window_for) else {
+            return false;
+        };
+        window.orderOut(None);
+        true
+    }
+
+    /// Restore and focus a window that [`hide`] put away.
+    pub fn show(handle: isize) {
+        let Some(window) = window_for(handle) else {
+            return;
+        };
+        window.makeKeyAndOrderFront(None);
+
+        // A menu-bar application is not active when its menu is clicked, so
+        // ordering the window front is not enough to give it the keyboard.
+        // The app has to ask for activation as well.
+        if let Some(mtm) = MainThreadMarker::new() {
+            #[allow(deprecated)]
+            NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+        }
+    }
+
+    /// Whether a native window is currently visible. The main window hides to
+    /// the menu bar, and a hidden window does not need a continuous level-meter
+    /// repaint.
+    pub fn is_visible(handle: isize) -> bool {
+        window_for(handle).is_some_and(|window| window.isVisible())
+    }
+
+    /// Show or hide the HUD. `orderFrontRegardless` shows the window without
+    /// activating Draft, which is what keeps the dictation target focused.
+    pub fn set_hud_visible(handle: isize, visible: bool) {
+        let Some(window) = window_for(handle) else {
+            return;
+        };
+        if visible {
+            window.orderFrontRegardless();
+        } else {
+            window.orderOut(None);
+        }
+    }
+
+    /// Make the HUD float over other applications and let clicks pass through.
+    pub fn configure_hud(handle: isize) {
+        let Some(window) = window_for(handle) else {
+            return;
+        };
+        window.setLevel(STATUS_WINDOW_LEVEL);
+        window.setIgnoresMouseEvents(true);
+        // A HUD that disappears when Draft loses focus is useless: the whole
+        // point is that someone else has focus.
+        window.setHidesOnDeactivate(false);
+        window.setCanHide(false);
+        window.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::Stationary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+    }
+
+    /// macOS draws no native title bar for Draft, so there is nothing to
+    /// recolour. The window is one surface painted by the interface.
+    pub fn set_title_bar_dark(_handle: isize, _dark: bool) {}
+
+    /// macOS calls this "reduce motion".
+    pub fn system_animations_enabled() -> bool {
+        !NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
+    }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub use macos::{
+    configure_hud, hide, hwnd, is_visible, set_hud_visible, set_title_bar_dark, show,
+    system_animations_enabled,
+};
+
+// The Linux shell has no window backend wired yet. Keeping the same signatures
+// means the call sites compile unchanged; visibility reports true so the level
+// meter keeps moving rather than silently freezing.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn hwnd(_window: &Window) -> Option<isize> {
     None
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn hide(_window: &Window) -> bool {
     false
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn show(_hwnd: isize) {}
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn set_hud_visible(_hwnd: isize, _visible: bool) {}
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn is_visible(_hwnd: isize) -> bool {
-    // There is no cross-platform visibility query here; keep the level meter
-    // live rather than silently freezing it on the other shells.
+    true
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn configure_hud(_hwnd: isize) {}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn set_title_bar_dark(_hwnd: isize, _dark: bool) {}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn system_animations_enabled() -> bool {
     true
 }

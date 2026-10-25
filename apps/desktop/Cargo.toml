@@ -38,5 +38,20 @@ windows-sys = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+# The HUD needs AppKit primitives GPUI does not expose: a window level above
+# every application, click-through, and a presence on all Spaces. GPUI already
+# links these frameworks through `arboard`, so this adds no native dependency.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSAccessibility",
+  "NSApplication",
+  "NSResponder",
+  "NSView",
+  "NSWindow",
+  "NSWorkspace",
+] }
+
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

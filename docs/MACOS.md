@@ -26,7 +26,7 @@ code.
 | `draft-audio` | `cpal` has a CoreAudio host. Device enumeration, 16 kHz resample, and the live level are already written against `cpal`, not WASAPI. |
 | `draft-hotkey` | Written. `macos.rs` holds an active `CGEventTap` at the HID point, a keycode table, `FlagsChanged` handling for the bare modifiers, Escape cancellation, and tap re-enable. Compiled for Apple Silicon; never run. |
 | `draft-paste` | Written. `macos.rs` posts `Cmd+V` from a private event source and waits for modifiers with `CGEventSourceKeyState`. Compiled for Apple Silicon; never run. |
-| `apps/desktop` | GPUI 0.2.2 is a macOS-first framework; `tray-icon` supports the menu bar. `window_control.rs` is already written as "no-op away from Windows" with `#[cfg]` seams. |
+| `apps/desktop` | GPUI 0.2.2 is a macOS-first framework; `tray-icon` supports the menu bar. `window_control.rs` now has an AppKit module: hide/show, HUD level, click-through, all Spaces, and reduce-motion. `startup.rs` writes a LaunchAgent. Neither has run. |
 
 The refactor that made `HotkeyConfig` platform-neutral is the only code change
 made for macOS so far. It is on `main` and Windows still passes its tests.
@@ -123,20 +123,41 @@ way the Windows path does when an application ignores the chord.
 
 ### 2.3 Window behaviour
 
-The Windows build pokes `HWND` styles. macOS equivalents:
+The Windows build pokes `HWND` styles; `apps/desktop/src/window_control.rs` now
+has a `#[cfg(target_os = "macos")]` module that does the same through AppKit.
+The handle passed around the app is the `NSView` pointer from
+`raw_window_handle`, converted back to its `NSWindow` with `NSView::window()`.
 
-| Windows | macOS |
+| Windows | macOS, as written |
 |---|---|
-| `WS_EX_NOACTIVATE` | `NSWindow` with `canBecomeKeyWindow` overridden to `NO` |
-| `WS_EX_TRANSPARENT` | `[window setIgnoresMouseEvents:YES]` |
-| `HWND_TOPMOST` | `[window setLevel:NSStatusWindowLevel]` |
-| hide to tray | `[window orderOut:nil]` |
-| `SW_SHOWNOACTIVATE` for the HUD | `orderFrontRegardless` with `NSWindowCollectionBehaviorCanJoinAllSpaces \| NSWindowCollectionBehaviorFullScreenAuxiliary` so the HUD appears over full-screen apps |
-| `DwmSetWindowAttribute` dark title bar | `NSAppearanceNameDarkAqua` on the window |
-| `SPI_GETCLIENTAREAANIMATION` | `NSWorkspace.accessibilityDisplayShouldReduceMotion` |
+| `WS_EX_TRANSPARENT` | `setIgnoresMouseEvents(true)` |
+| `HWND_TOPMOST` | `setLevel(25)`, the value of `NSStatusWindowLevel` |
+| hide to tray | `orderOut(None)` |
+| `SW_SHOWNOACTIVATE` for the HUD | `orderFrontRegardless()`, which shows without activating Draft |
+| HUD over a full-screen Space | `CanJoinAllSpaces \| FullScreenAuxiliary \| Stationary \| IgnoresCycle` |
+| `DwmSetWindowAttribute` dark title bar | nothing: the window has no native title bar |
+| `SPI_GETCLIENTAREAANIMATION` | `NSWorkspace.accessibilityDisplayShouldReduceMotion()`, inverted |
+
+`setHidesOnDeactivate(false)` and `setCanHide(false)` keep the HUD on screen
+when another application takes focus, which is the whole point of a HUD.
+
+Showing the main window also calls `activateIgnoringOtherApps(true)`: a
+menu-bar application is not active when its menu is clicked, so ordering the
+window front does not give it the keyboard. That selector is deprecated in
+macOS 14 in favour of `activate()`, but it still exists, and `activate()` would
+crash on anything older. When the deployment target is 14 this can be a
+one-line change.
 
 `LSUIElement = true` in `Info.plist` gives a menu-bar-only app with no Dock icon,
-which is what the tray-only behaviour is on Windows.
+which is what the tray-only behaviour is on Windows. The module does not change
+the activation policy at runtime, so until the bundle exists a `cargo run` build
+still shows a Dock icon.
+
+What is unverified is everything visual: whether level 25 clears other floating
+panels, whether the HUD survives a Space switch, and whether GPUI's own window
+bookkeeping tolerates a window ordered out behind its back. GPUI tracks
+visibility internally; the Windows path has the same shape, so the risk is known
+rather than new.
 
 ### 2.4 Launch at sign-in
 
@@ -162,8 +183,28 @@ new one.
 
 `transcribe.cpp` needs a Metal build: `GGML_METAL=ON`, `GGML_METAL_EMBED_LIBRARY=ON`
 so the `.metallib` is inside the binary and the app stays a single bundle with
-no loose shader files. `ComputeBackend::Metal` already exists; the work is the
-build script and confirming a real transcription.
+no loose shader files. `ComputeBackend::Metal` already exists.
+
+The first `macos-14` run answered the build question in the least convenient
+way: `transcribe-cpp-sys` was configured with `-DTRANSCRIBE_VULKAN=ON` and CMake
+stopped at `Could NOT find Vulkan (missing: Vulkan_LIBRARY Vulkan_INCLUDE_DIR
+glslc)`. The cause was `draft-engine`'s `default = ["vulkan"]`, which is correct
+on Windows and impossible on macOS. The backend is now named by the target
+dependency table instead:
+
+```toml
+[target.'cfg(target_os = "windows")'.dependencies]
+transcribe-cpp = { ..., features = ["vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+transcribe-cpp = { ..., features = ["metal"] }
+```
+
+`draft-engine`'s `default` feature is now empty, so a plain `cargo build` gets
+the platform's backend without a flag a person has to remember. `--features
+cuda` and `--no-default-features` still work for the explicit cases. The
+`macos-14` job is what proves the Metal library builds; it cannot prove that a
+transcript is correct.
 
 A universal binary (`aarch64-apple-darwin` + `x86_64-apple-darwin`) needs a
 fat native library, or two builds shipped as two downloads. Start with Apple

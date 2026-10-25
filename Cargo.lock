@@ -1452,6 +1452,8 @@ dependencies = [
  "draft-hotkey",
  "draft-paste",
  "gpui",
+ "objc2",
+ "objc2-app-kit",
  "raw-window-handle",
  "tracing",
  "tracing-appender",
