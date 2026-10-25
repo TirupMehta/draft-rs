@@ -253,7 +253,7 @@ Each stage ends in something observable. Do not skip a verification.
 | 6 | Metal engine build and a real transcription | `draftctl transcribe bench/fixtures/jfk.wav` returns the verified text |
 | 7 | **Written.** `scripts/build-macos-app.sh` assembles `Draft.app` from `packaging/macos/Info.plist`, the icon, and the licenses; CI ad-hoc signs it and writes a DMG | The CI bundle launches from Finder with no terminal (device check pending) |
 | 8 | Documented; ad-hoc signing and DMG creation run in CI. Developer ID, `notarytool`, and stapling need an Apple account and secrets | A downloaded DMG opens without a Gatekeeper block |
-| 9 | **Green on `43952b5`.** The `macos-14` job runs fmt, clippy, test, a release build, the bundle, and an ad-hoc codesign verify | A green run on a machine that is not the author's |
+| 9 | **Green on `b995e7e`.** The `macos-14` job runs fmt, clippy, test, a release build, the bundle, an ad-hoc codesign verify, and a DMG | A green run on a machine that is not the author's |
 
 Stages 1, 3, 4, 5, and 7 are code-complete and compile for
 `aarch64-apple-darwin`, but their "done when" columns are still unmet: no Mac
