@@ -13,7 +13,7 @@ on:
         default: "v0.2.0-macos.1"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-macos-${{ inputs.tag }}
@@ -56,19 +56,18 @@ jobs:
           shasum -a 256 "$dmg" > "$dmg.sha256"
           cat "$dmg.sha256"
 
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          dmg=$(ls dist/Draft-*-macos-*.dmg)
-          sum="$dmg.sha256"
-          if gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release upload "${{ inputs.tag }}" "$dmg" "$sum" \
-              --repo "${{ github.repository }}" --clobber
-          else
-            gh release create "${{ inputs.tag }}" "$dmg" "$sum" \
-              --repo "${{ github.repository }}" \
-              --title "Draft 0.2.0 for macOS (Apple Silicon preview)" \
-              --notes-file packaging/macos/RELEASE_NOTES.md \
-              --prerelease
-          fi
+      # Publishing is left to the maintainer so the release is attributed to
+      # their account instead of github-actions[bot]:
+      #
+      #   gh release create <tag> \
+      #     dist/Draft-*-macos-*.dmg dist/Draft-*-macos-*.dmg.sha256 \
+      #     --title "Draft 0.2.0 for macOS (Apple Silicon preview)" \
+      #     --notes-file packaging/macos/RELEASE_NOTES.md --prerelease
+      - name: Upload the DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Draft-macos-arm64
+          path: |
+            dist/Draft-*-macos-*.dmg
+            dist/Draft-*-macos-*.dmg.sha256
+          if-no-files-found: error
