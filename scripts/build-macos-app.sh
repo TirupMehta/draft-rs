@@ -39,16 +39,16 @@ chmod +x "$app/Contents/MacOS/draft"
 sed "s/__VERSION__/$version/g" \
     "$root/packaging/macos/Info.plist" > "$app/Contents/Info.plist"
 
-# The app resolves its license texts beside the executable, the same layout the
-# Windows installer uses. Keep that contract inside Contents/MacOS.
-mkdir -p "$app/Contents/MacOS/licenses"
-cp "$root/LICENSE" "$app/Contents/MacOS/licenses/LICENSE.txt"
-cp "$root/NOTICE" "$app/Contents/MacOS/licenses/NOTICE.txt"
-cp "$root/CREDITS.md" "$app/Contents/MacOS/licenses/CREDITS.md"
-cp "$root/THIRD_PARTY_NOTICES.md" "$app/Contents/MacOS/licenses/THIRD_PARTY_NOTICES.md"
-cp "$root/assets/fonts/Inter-OFL.txt" "$app/Contents/MacOS/licenses/Inter-OFL.txt"
+# Licenses live in Resources, not MacOS: codesign seals Resources, while extra
+# files under Contents/MacOS make signature verification fail.
+mkdir -p "$app/Contents/Resources/licenses"
+cp "$root/LICENSE" "$app/Contents/Resources/licenses/LICENSE.txt"
+cp "$root/NOTICE" "$app/Contents/Resources/licenses/NOTICE.txt"
+cp "$root/CREDITS.md" "$app/Contents/Resources/licenses/CREDITS.md"
+cp "$root/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/licenses/THIRD_PARTY_NOTICES.md"
+cp "$root/assets/fonts/Inter-OFL.txt" "$app/Contents/Resources/licenses/Inter-OFL.txt"
 cp "$root/assets/fonts/JetBrainsMono-OFL.txt" \
-    "$app/Contents/MacOS/licenses/JetBrainsMono-OFL.txt"
+    "$app/Contents/Resources/licenses/JetBrainsMono-OFL.txt"
 
 # The repository ships one 256 px source icon. Render the full iconset from it
 # so iconutil always gets every slot; the 512/1024 entries are upscaled and can

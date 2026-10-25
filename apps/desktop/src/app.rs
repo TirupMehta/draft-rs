@@ -2295,6 +2295,9 @@ impl DraftApp {
                 this.set_launch_at_startup(enabled, cx);
             }));
 
+        // Only macOS appends the permission block below, so Windows would warn
+        // about the mutation never happening.
+        #[allow(unused_mut)]
         let mut rows = vec![
             setting_block(
                 palette,
@@ -2922,10 +2925,7 @@ impl DraftApp {
     }
 
     fn open_licenses(&mut self, cx: &mut Context<Self>) {
-        let Some(dir) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|parent| parent.join("licenses")))
-        else {
+        let Some(dir) = licenses_dir() else {
             self.notice = Some("The full license texts are in the repository.".to_owned());
             cx.notify();
             return;
@@ -3170,6 +3170,28 @@ fn brand_mark(palette: &theme::Palette, size: f32) -> Div {
                         .bg(palette.text),
                 ),
         )
+}
+
+/// The installed license folder.
+///
+/// Windows and a loose macOS binary keep `licenses` beside the executable. A
+/// `.app` keeps it in `Contents/Resources`, the only place codesign seals;
+/// extra files under `Contents/MacOS` make signature verification fail.
+fn licenses_dir() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let parent = exe.parent()?;
+    let beside = parent.join("licenses");
+    if beside.is_dir() {
+        return Some(beside);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let resources = parent.parent()?.join("Resources").join("licenses");
+        if resources.is_dir() {
+            return Some(resources);
+        }
+    }
+    Some(beside)
 }
 
 /// A label and its explanation, with the control on the right.

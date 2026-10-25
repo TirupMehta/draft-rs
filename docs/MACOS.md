@@ -226,8 +226,9 @@ Silicon only; an Intel Mac build is a second release, not a first one.
 binary. It writes `Contents/Info.plist` from `packaging/macos/Info.plist`
 (`LSUIElement`, `NSMicrophoneUsageDescription`, bundle id `in.tirup.draft`,
 minimum macOS 13), derives `Draft.icns` from `assets/draft-256.png`, and copies
-the license texts to `Contents/MacOS/licenses`, the same location
-`open_licenses()` expects beside the executable.
+the license texts to `Contents/Resources/licenses`, where codesign seals them.
+`open_licenses()` still checks beside the executable first, then that Resources
+folder on macOS.
 
 The default signature is ad-hoc (`-`), which is what the macOS runner can do
 without secrets. Set `CODESIGN_IDENTITY="Developer ID Application: ..."` to sign
