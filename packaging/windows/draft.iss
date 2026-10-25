@@ -4,9 +4,9 @@
 ; %LOCALAPPDATA%\Programs\Draft so it never needs an administrator prompt, and
 ; user data lives in %LOCALAPPDATA%\Draft4 where the app expects it.
 ;
-; Uninstall is meant to leave nothing behind: the Start-menu folder carries an
-; Uninstall entry, and [UninstallDelete] removes the model, settings, logs, and
-; history along with the app.
+; Uninstall removes the app, its license texts, and the shortcuts this project
+; has used over time. It deliberately keeps %LOCALAPPDATA%\Draft4 (settings,
+; history, logs, and the model) so reinstalling does not destroy local data.
 
 #ifndef AppVersion
   #define AppVersion "0.2.0"
@@ -87,13 +87,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\draft.exe"; Description: "Launch Draft"; Flags: nowait postinstall skipifsilent
 
 [Messages]
-; Say exactly what is about to go, because this is the only uninstall path that
-; deletes the model and the local history.
-ConfirmUninstall=Draft, its speech model, settings, and local history will be removed from this computer. This cannot be undone. Do you want to continue?
+; Be explicit about what stays. Local data is never part of the uninstall.
+ConfirmUninstall=Draft and its installed files will be removed. Your settings, history, and the speech model in %LOCALAPPDATA%\Draft4 will be kept. Do you want to continue?
 
 [UninstallDelete]
-; The app writes the model, settings, logs, and history under
-; %LOCALAPPDATA%\Draft4. Removing that folder is what makes the uninstall
-; complete; the app and its shortcuts are tracked and removed by Inno.
-Type: filesandordirs; Name: "{localappdata}\Draft4"
-Type: filesandordirs; Name: "{app}\licenses"
+; Local data in %LOCALAPPDATA%\Draft4 is intentionally preserved. Only remove
+; leftovers from earlier layouts and the top-level Start-menu shortcut that an
+; older build created outside the Draft folder. Inno tracks everything it
+; installed itself, including the Draft group and the desktop shortcut.
+Type: files; Name: "{autoprograms}\Draft.lnk"
+Type: files; Name: "{app}\draft.prev.exe"
