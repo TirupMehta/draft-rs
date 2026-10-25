@@ -8,6 +8,9 @@
 //! Everything here is a no-op on Linux so the shell still builds while that
 //! backend is being wired.
 
+// macOS reaches GPUI's `Window` through the module below; the other targets
+// use it in the free functions here.
+#[cfg(not(target_os = "macos"))]
 use gpui::Window;
 
 #[cfg(target_os = "windows")]
