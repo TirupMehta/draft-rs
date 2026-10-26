@@ -292,7 +292,7 @@ cargo build --workspace --release
 Get-Process draft -ErrorAction SilentlyContinue | Stop-Process -Force
 Copy-Item target\release\draft.exe dist\draft.exe -Force
 .\scripts\build-installer.ps1
-Start-Process dist\Draft-Setup-0.2.0.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+Start-Process dist\Draft-Setup-0.2.1.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
 ```
 
 Notes:
