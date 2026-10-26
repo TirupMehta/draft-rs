@@ -234,7 +234,9 @@ Set `MODEL_PATH=/path/to/whisper-large-v3-turbo-F16.gguf` to bundle the model in
 `Contents/Resources/models`; `main.rs` reads it there when the data folder has
 none, so the first dictation needs no network. The `.github/workflows/release-macos.yml`
 workflow downloads the pinned artifact, verifies its SHA-256, builds the DMG,
-writes a checksum, and publishes it to a prerelease.
+writes a checksum, and uploads both as a workflow artifact. Publishing is left
+to the maintainer so the release is attributed to their account; the
+`v0.2.0-macos.1` prerelease was created that way.
 
 The default signature is ad-hoc (`-`), which is what the macOS runner can do
 without secrets. Set `CODESIGN_IDENTITY="Developer ID Application: ..."` to sign
@@ -260,7 +262,7 @@ Each stage ends in something observable. Do not skip a verification.
 | 6 | Metal engine build and a real transcription | `draftctl transcribe bench/fixtures/jfk.wav` returns the verified text |
 | 7 | **Written.** `scripts/build-macos-app.sh` assembles `Draft.app` from `packaging/macos/Info.plist`, the icon, and the licenses; CI ad-hoc signs it and writes a DMG | The CI bundle launches from Finder with no terminal (device check pending) |
 | 8 | Documented; ad-hoc signing and DMG creation run in CI. Developer ID, `notarytool`, and stapling need an Apple account and secrets | A downloaded DMG opens without a Gatekeeper block |
-| 9 | **Green on `b995e7e`.** The `macos-14` job runs fmt, clippy, test, a release build, the bundle, an ad-hoc codesign verify, and a DMG | A green run on a machine that is not the author's |
+| 9 | **Green on `87a33d3`.** The `macos-14` job runs fmt, clippy, test, a release build, the bundle, an ad-hoc codesign verify, and a DMG; the `release-macos` run `40183388100` produced the published `v0.2.0-macos.1` DMG | A green run on a machine that is not the author's |
 
 Stages 1, 3, 4, 5, and 7 are code-complete and compile for
 `aarch64-apple-darwin`, but their "done when" columns are still unmet: no Mac

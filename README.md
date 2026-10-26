@@ -63,8 +63,10 @@ cloud, no account, and no audio leaving the machine.
 - A resumable model installer that downloads the pinned F16 GGUF once, verifies
   its SHA-256, and installs it atomically.
 - A per-user Windows installer that installs to `%LOCALAPPDATA%\Programs\Draft`,
-  puts Draft and **Uninstall Draft** in one Start-menu folder, offers an optional
-  desktop shortcut, and uninstalls everything including the model.
+  puts Draft and **Uninstall Draft** in one Start-menu folder, and offers an
+  optional desktop shortcut. Uninstall removes the app and its license files;
+  settings, history, and the model in `%LOCALAPPDATA%\Draft4` are kept so a
+  reinstall does not start over.
 
 ## Privacy
 
@@ -116,12 +118,21 @@ the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
 
 **To remove it:** Start menu → Draft → **Uninstall Draft**. That one entry
-removes the app, its shortcuts, the speech model, settings, logs, and local
-history. Nothing is left behind in `%LOCALAPPDATA%`.
+removes the app, its shortcuts, and its license files. Your settings, history,
+and the speech model in `%LOCALAPPDATA%\Draft4` are kept, so reinstalling does
+not download the model again. Delete that folder by hand if you want a clean
+slate.
 
 The installer is **not code-signed yet**, so Windows SmartScreen may show a
 warning on first run. You can verify the download against the release notes, or
 build from source.
+
+**Apple Silicon macOS, preview.** Download `Draft-0.2.0-macos-arm64.dmg` from
+the [macOS prerelease](https://github.com/TirupMehta/draft-rs/releases/tag/v0.2.0-macos.1).
+It is ad-hoc signed, not notarized, so macOS blocks the first launch; the
+release notes list the exact steps. The DMG carries the F16 model. The app is a
+preview: it builds and links on Apple hardware, but no one has dictated on a
+physical Mac yet.
 
 ## Build from source
 
@@ -169,8 +180,9 @@ That writes `dist\Draft-Setup-<version>.exe`. Add `-IncludeModel` to embed the
 installed GGUF for an offline install.
 
 Uninstall from **Start → Draft → Uninstall Draft**, or from Settings → Apps.
-It removes the app, both shortcuts, the model, settings, logs, and local history,
-so nothing is left under `%LOCALAPPDATA%\Draft4`.
+It removes the app, both shortcuts, and the installed license texts. Settings,
+history, logs, and the model under `%LOCALAPPDATA%\Draft4` are intentionally
+kept; delete that folder yourself for a full reset.
 
 ## Architecture
 
@@ -197,11 +209,12 @@ type crosses into the core.
 
 Draft 0.2.0 is an early Windows release.
 
-- Windows x64 is the only supported target today. macOS has a real event tap and
-  a real `Cmd+V` paste in the same crates, both compiled for Apple Silicon, and a
-  `macos-14` CI job that builds the workspace on Apple hardware. There is still
-  no `.app`, no window-control module, no signing, and no Metal run, so there is
-  nothing to download. [docs/MACOS.md](docs/MACOS.md) lists what is and is not
+- Windows x64 is the supported release. An Apple Silicon macOS preview is
+  available as an ad-hoc-signed DMG: it builds and links the Metal engine on the
+  `macos-14` runner and carries the same event tap, `Cmd+V` paste, AppKit window
+  behaviour, permission onboarding, and `Draft.app` bundle. It is not notarized
+  and has not been run on a physical Mac, so treat it as a preview, not a
+  supported release. [docs/MACOS.md](docs/MACOS.md) lists what is and is not
   verified. Linux is not planned.
 - The installer is unsigned.
 - The History pane is not built; the bounded store and `draftctl history` are

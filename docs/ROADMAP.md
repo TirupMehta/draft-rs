@@ -4,14 +4,16 @@ The authoritative build order. Each milestone ends with something a user can
 run, not a folder of abstractions. Desktop first, then mobile over the same
 core.
 
-## Current state (2026-10-21)
+## Current state (2026-10-25)
 
-Windows x64 is the active target. The hold-to-talk loop, tray, click-through HUD,
-persisted shortcut/microphone/model settings, microphone level check and device
-fallback, the pinned resumable model installer, and the release Vulkan benchmark
-are working. The open release gates are real-speech WER parity, a repeatable
-end-to-end paste run, installer and signed updates, and the macOS/Linux/mobile
-shells. Measured latency lives in [`PERFORMANCE.md`](PERFORMANCE.md).
+Windows x64 is the supported release. The hold-to-talk loop, tray, click-through
+HUD, persisted shortcut/microphone/model settings, microphone level check and
+device fallback, the pinned resumable model installer, and the release Vulkan
+benchmark are working. An Apple Silicon macOS preview builds, links Metal,
+bundles `Draft.app`, ad-hoc signs it, and ships as a DMG; it has not been run on
+a physical Mac. The open release gates are real-speech WER parity, a repeatable
+end-to-end paste run, installer and signed updates, and macOS runtime
+verification. Measured latency lives in [`PERFORMANCE.md`](PERFORMANCE.md).
 
 Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 `%LOCALAPPDATA%\Draft` folder is never read or overwritten.
@@ -93,7 +95,8 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [ ] Corrections, taught words, hotwords.
 - [x] Launch at login on Windows: a per-user Run entry starts Draft silently in
       the tray, with a Settings > Startup toggle.
-- [ ] Optional sounds and light/dark theme.
+- [x] Optional light/dark theme with a system-following mode.
+- [ ] Optional sounds.
 
 ## M4 - Distribution
 
