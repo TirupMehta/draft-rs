@@ -65,6 +65,7 @@ bench                 fixtures, baseline data, latency measurements
 docs                  SPEC, ROADMAP, PERFORMANCE, MACOS
 packaging/windows     Inno Setup installer script
 scripts               build-installer.ps1, the release installer builder
+tools                 release guards (check-x86-baseline.py)
 ```
 
 ### What is not app code
@@ -304,6 +305,13 @@ Notes:
   uninstall. It needs the Inno Setup 6 compiler (`ISCC.exe`).
 * A version bump touches `Cargo.toml` (`[workspace.package] version`) and
   `packaging/windows/draft.iss` (`#define AppVersion`).
+* **The Windows CPU floor is AVX2**, pinned in `.cargo/config.toml` as
+  `TRANSCRIBE_CMAKE_ARGS=-DGGML_NATIVE=OFF ...`. Do not remove it. ggml builds
+  its CPU backend for the build machine by default, so the CI runner's AVX-512
+  leaked into the first 0.2.1 installer and `draft.exe` died with
+  `0xc000001d` (the faulting instruction was `vmovups zmm0, ...`) on an AVX2
+  laptop. `tools/check-x86-baseline.py` decodes `.text` and fails a release
+  build above 2,000 zmm instructions; a portable build has about 300.
 * `draftctl` subcommands: `clean`, `transcribe`, `bench`, `mic`, `listen`,
   `model status|list|install|verify|remove`, `history list|search|delete|clear`.
 

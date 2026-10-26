@@ -1,0 +1,20 @@
+# The release binary must run on any AVX2 machine, not only on the one that
+# built it.
+#
+# ggml defaults GGML_NATIVE to ON everywhere except Apple targets, which compiles
+# the vendored CPU backend for the build machine's exact CPU. A GitHub runner
+# with AVX-512 therefore produced an installer whose draft.exe died with
+# STATUS_ILLEGAL_INSTRUCTION (0xc000001d) on a Raptor Lake laptop: the faulting
+# instruction was `vmovups zmm0, zmmword ptr [rip + ...]`.
+#
+# GGML_NATIVE=OFF selects ggml's own portable x86 floor instead: SSE4.2, AVX,
+# AVX2, BMI2, and FMA/F16C off MSVC. The AVX-512 tiers are named explicitly so
+# a future ggml default cannot quietly re-enable them. transcribe-cpp-sys feeds
+# TRANSCRIBE_CMAKE_ARGS after its feature-derived defines, so these win on the
+# first configure.
+#
+# A real environment variable still overrides this (`force` defaults to false),
+# so a one-off local experiment can opt back into -march=native. Do not do that
+# for anything you intend to ship.
+[env]
+TRANSCRIBE_CMAKE_ARGS = "-DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_AVX512_VBMI=OFF -DGGML_AVX512_VNNI=OFF -DGGML_AVX512_BF16=OFF"

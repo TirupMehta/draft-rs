@@ -106,7 +106,8 @@ the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Install
 
-**Windows 10/11, x64.**
+**Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
+baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
 
 1. Download `Draft-Setup-0.2.1.exe` from
    [Releases](https://github.com/TirupMehta/draft-rs/releases/latest).

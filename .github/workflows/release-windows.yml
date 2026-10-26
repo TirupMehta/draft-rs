@@ -114,6 +114,18 @@ jobs:
       - name: Build the release binary
         run: cargo build --workspace --release
 
+      # A native build here silently targets this runner's CPU, which has
+      # AVX-512 that most Windows machines lack. Fail before packaging.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the disassembler
+        run: python -m pip install --quiet capstone
+
+      - name: Check the CPU baseline
+        run: python tools/check-x86-baseline.py target/release/draft.exe
+
       - name: Build the installer
         shell: pwsh
         run: |
