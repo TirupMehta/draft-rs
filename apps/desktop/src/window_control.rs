@@ -168,7 +168,9 @@ mod macos {
     use gpui::Window;
     use objc2::MainThreadMarker;
     use objc2::rc::Retained;
-    use objc2_app_kit::{NSApplication, NSView, NSWindow, NSWindowCollectionBehavior, NSWorkspace};
+    use objc2_app_kit::{
+        NSApplication, NSView, NSWindow, NSWindowButton, NSWindowCollectionBehavior, NSWorkspace,
+    };
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     /// `NSStatusWindowLevel`. Above the normal and floating levels and below
@@ -268,6 +270,26 @@ mod macos {
     /// recolour. The window is one surface painted by the interface.
     pub fn set_title_bar_dark(_handle: isize, _dark: bool) {}
 
+    /// Draft draws its own minimize and close controls on the right, matching
+    /// the Windows build. AppKit's traffic lights sit at the top left, where
+    /// they would overlap the brand mark and duplicate those controls. Hide
+    /// them; the window's close handler still runs for Cmd+W and the app's own
+    /// close button.
+    pub fn configure_main_window(handle: isize) {
+        let Some(window) = window_for(handle) else {
+            return;
+        };
+        for kind in [
+            NSWindowButton::CloseButton,
+            NSWindowButton::MiniaturizeButton,
+            NSWindowButton::ZoomButton,
+        ] {
+            if let Some(button) = window.standardWindowButton(kind) {
+                button.setHidden(true);
+            }
+        }
+    }
+
     /// macOS calls this "reduce motion".
     pub fn system_animations_enabled() -> bool {
         !NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
@@ -276,9 +298,14 @@ mod macos {
 
 #[cfg(target_os = "macos")]
 pub use macos::{
-    configure_hud, hide, hwnd, is_visible, set_hud_visible, set_title_bar_dark, show,
-    system_animations_enabled,
+    configure_hud, configure_main_window, hide, hwnd, is_visible, set_hud_visible,
+    set_title_bar_dark, show, system_animations_enabled,
 };
+
+/// Windows and Linux have no AppKit traffic lights to hide. Draft draws its own
+/// window controls on every platform, so this is a no-op there.
+#[cfg(not(target_os = "macos"))]
+pub fn configure_main_window(_handle: isize) {}
 
 // The Linux shell has no window backend wired yet. Keeping the same signatures
 // means the call sites compile unchanged; visibility reports true so the level

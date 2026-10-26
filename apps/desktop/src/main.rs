@@ -106,6 +106,10 @@ fn main() -> color_eyre::Result<()> {
             .flatten();
 
         if let Some(hwnd) = main_hwnd {
+            // AppKit keeps its traffic lights at the top left, where they would
+            // overlap the brand mark. Draft draws the same minimize and close
+            // controls as the Windows build, so the native set is hidden.
+            window_control::configure_main_window(hwnd);
             // The window frame belongs to Windows. When the person picks a
             // theme, the frame has to follow it.
             match theme::Appearance::from_setting(&options.settings.appearance) {
