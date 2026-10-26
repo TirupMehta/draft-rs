@@ -313,6 +313,11 @@ Notes:
 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test
 --workspace`, and `cargo build --workspace --release`. Do not weaken it.
 
+`.github/workflows/release-windows.yml` and `release-macos.yml` are manual. They
+build the installer or DMG, verify the bundled model, write a SHA-256, and
+upload the artifacts. They do not publish; the maintainer creates the release
+from those artifacts so it is attributed to their account.
+
 ---
 
 ## 7. Command-line and environment

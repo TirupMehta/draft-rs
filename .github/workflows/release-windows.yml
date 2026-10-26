@@ -1,0 +1,140 @@
+name: release-windows
+
+# Builds the per-user Windows installer on a GitHub runner, bundles the pinned
+# F16 model, writes its SHA-256, and uploads both as workflow artifacts. The
+# local machine cannot build this without the Windows SDK; the runner has it.
+#
+# Publishing is left to the maintainer so the release is attributed to their
+# account instead of github-actions[bot]. Bump Cargo.toml and
+# packaging/windows/draft.iss first, then:
+#
+#   gh release create <tag> \
+#     dist/Draft-Setup-<version>.exe dist/Draft-Setup-<version>.exe.sha256 \
+#     --title "Draft <version>" --notes-file <notes>
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows
+  cancel-in-progress: true
+
+env:
+  VULKAN_SDK_VERSION: 1.4.363.0
+
+jobs:
+  windows:
+    name: Windows x64 release
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore the Vulkan SDK
+        id: vulkan
+        uses: actions/cache@v4
+        with:
+          path: C:/VulkanSDK/${{ env.VULKAN_SDK_VERSION }}
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-windows-x64
+
+      - name: Install the Vulkan SDK
+        if: steps.vulkan.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $version = $env:VULKAN_SDK_VERSION
+          $url = "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe"
+          $installer = Join-Path $env:RUNNER_TEMP 'vulkansdk.exe'
+          curl.exe -sSfL --retry 3 --retry-delay 5 -o $installer $url
+          $root = "C:\VulkanSDK\$version"
+          $installerArgs = @(
+            '--root', $root,
+            '--accept-licenses',
+            '--default-answer',
+            '--confirm-command',
+            'install'
+          )
+          $process = Start-Process -FilePath $installer -ArgumentList $installerArgs -Verb RunAs -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "the Vulkan SDK installer exited with $($process.ExitCode)"
+          }
+          if (-not (Test-Path (Join-Path $root 'Bin\glslc.exe'))) {
+            throw "the Vulkan SDK at $root is missing Bin\glslc.exe"
+          }
+
+      - name: Use the Vulkan SDK
+        shell: pwsh
+        run: |
+          $sdk = "C:\VulkanSDK\$env:VULKAN_SDK_VERSION"
+          if (-not (Test-Path (Join-Path $sdk 'Bin\glslc.exe'))) {
+            throw "the Vulkan SDK is not usable at $sdk"
+          }
+          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VK_SDK_PATH=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          (Join-Path $sdk 'Bin') | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Locate the Windows shader compiler
+        shell: pwsh
+        run: |
+          $fxc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter fxc.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $fxc) { throw 'fxc.exe not found' }
+          "GPUI_FXC_PATH=$($fxc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Restore the pinned model
+        id: model
+        uses: actions/cache@v4
+        with:
+          path: model/whisper-large-v3-turbo-F16.gguf
+          key: whisper-large-v3-turbo-F16-1625935488-c8506ddf
+
+      - name: Download and verify the model
+        if: steps.model.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path model | Out-Null
+          $url = "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-F16.gguf"
+          curl.exe -sSfL --retry 3 --retry-delay 5 -o model/whisper-large-v3-turbo-F16.gguf $url
+          $file = Get-Item model/whisper-large-v3-turbo-F16.gguf
+          if ($file.Length -ne 1625935488) {
+            throw "the model is $($file.Length) bytes, expected 1625935488"
+          }
+          $actual = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+          $expected = "c8506ddfa3d4eb9279170d722a75422db00dbdbd7618531bbb81926e0598eb8f"
+          if ($actual -ne $expected) {
+            throw "the model checksum is $actual, expected $expected"
+          }
+
+      - name: Build the release binary
+        run: cargo build --workspace --release
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target\release\draft.exe dist\draft.exe -Force
+          .\scripts\build-installer.ps1 -IncludeModel -ModelPath model\whisper-large-v3-turbo-F16.gguf
+
+      - name: Write the checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist\Draft-Setup-*.exe | Select-Object -First 1
+          if (-not $installer) { throw 'the installer was not built' }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($installer.Name)" | Out-File "$($installer.FullName).sha256" -Encoding ascii
+          Get-Content "$($installer.FullName).sha256"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Draft-windows-x64
+          path: |
+            dist/Draft-Setup-*.exe
+            dist/Draft-Setup-*.exe.sha256
+          if-no-files-found: error

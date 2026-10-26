@@ -51,6 +51,7 @@ if ($IncludeModel) {
     if (-not (Test-Path $ModelPath)) {
         throw "Model not found at $ModelPath"
     }
+    $ModelPath = (Resolve-Path -LiteralPath $ModelPath).Path
     $defines += "/DIncludeModel=1"
     $defines += "/DModelPath=$ModelPath"
 }
