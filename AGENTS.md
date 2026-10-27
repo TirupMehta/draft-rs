@@ -76,6 +76,12 @@ and **one `Draft-Setup-<version>.exe`** installer. The only developer script is
 that installer. The app itself never calls PowerShell, and no script is
 installed with it. Do not add a script for a feature.
 
+The installer copies the bundled model into `%LOCALAPPDATA%\Draft4\models`, not
+into the install folder. That entry must keep `uninsneveruninstall`: Inno
+otherwise registers every file it copies for deletion, so uninstall would remove
+a 1.5 GB model the confirmation dialog promises to keep. Test uninstall after
+touching `packaging/windows/draft.iss`.
+
 ### The desktop shell (`apps/desktop/src`)
 
 | File | Responsibility |

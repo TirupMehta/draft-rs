@@ -60,7 +60,11 @@ Source: "{#RepoRoot}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}\licenses"; Flags: 
 Source: "{#RepoRoot}\assets\fonts\Inter-OFL.txt"; DestDir: "{app}\licenses"; DestName: "Inter-OFL.txt"; Flags: ignoreversion
 Source: "{#RepoRoot}\assets\fonts\JetBrainsMono-OFL.txt"; DestDir: "{app}\licenses"; DestName: "JetBrainsMono-OFL.txt"; Flags: ignoreversion
 #ifdef IncludeModel
-Source: "{#ModelPath}"; DestDir: "{localappdata}\Draft4\models"; Flags: onlyifdoesntexist
+; The model lands in the app's data folder, not the install folder, so the
+; uninstaller must leave it alone: the confirmation promises to keep it, and a
+; reinstall should not have to re-extract 1.5 GB. Inno otherwise registers every
+; file it copies for removal, which deleted the model on uninstall.
+Source: "{#ModelPath}"; DestDir: "{localappdata}\Draft4\models"; Flags: onlyifdoesntexist uninsneveruninstall
 #endif
 
 [InstallDelete]
