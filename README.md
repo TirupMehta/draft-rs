@@ -46,6 +46,12 @@ cloud, no account, and no audio leaving the machine.
 - Press **Esc** while recording to cancel the take.
 - **Live preview** is available under Settings → Dictation. It is off by
   default; the final transcript always comes from the complete clip.
+- **Formatting** turns a finished transcript into readable text: a paragraph
+  break at a real pause, measured against your own rhythm and learned from your
+  dictations on this device. Nothing is rewritten, added, or reordered.
+- **Spoken commands** in Settings → Formatting: say `new paragraph`, `new line`,
+  or `scratch that` as its own phrase, with a pause on each side. Ordinary
+  speech that happens to contain those words is left alone.
 - The model loads once and stays warm. Vulkan is the shipping path, with a CPU
   fallback when a GPU backend is unavailable.
 - A one-window interface: Dictate and Settings share the same 680×500 surface,
@@ -109,7 +115,7 @@ the raw reports are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 **Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
 baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
 
-1. Download `Draft-Setup-0.2.1.exe` from
+1. Download `Draft-Setup-0.3.0.exe` from
    [Releases](https://github.com/TirupMehta/draft-rs/releases/latest).
 2. Run the installer. It installs for the current user under
    `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
@@ -208,7 +214,7 @@ type crosses into the core.
 
 ## Status and limitations
 
-Draft 0.2.1 is an early Windows release.
+Draft 0.3.0 is an early Windows release.
 
 - Windows x64 is the supported release. An Apple Silicon macOS preview is
   available as an ad-hoc-signed DMG: it builds and links the Metal engine on the

@@ -3,8 +3,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use draft_core::format::{self, ParagraphStyle};
+use draft_core::rhythm::Rhythm;
 use draft_core::text;
-use draft_engine::{ComputeBackend, Engine, EngineConfig, EngineTimings, TranscriptionOptions};
+use draft_engine::{
+    ComputeBackend, Engine, EngineConfig, EngineTimings, Segment, TranscriptionOptions,
+};
 use draft_hotkey::{HotkeyConfig, HotkeyEvent};
 use serde::Serialize;
 
@@ -77,6 +81,8 @@ Transcribe options:
   --language <code>             ISO language hint
   --low-latency                 Skip temperature fallback (preview-style decode)
   --no-warmup                   Skip the untimed pipeline warm-up
+  --timings                     Print decoder segment timings and pause stats
+  --format                      Print the formatted text, not the raw transcript
 
 Bench options:
   --model <path>                GGUF model (required)
@@ -127,7 +133,33 @@ fn transcribe(args: &[String]) -> Result<()> {
     let clip = read_clip(file)?;
     let result = engine.transcribe(&clip.samples, &options.transcription)?;
 
-    println!("{}", result.text);
+    if options.format {
+        let cleaned = text::clean_text(&result.text, false);
+        let segments = result
+            .segments
+            .iter()
+            .map(|segment| {
+                format::Segment::new(segment.text.clone(), segment.start_ms, segment.end_ms)
+            })
+            .collect::<Vec<_>>();
+        let format_options = format::Options {
+            paragraphs: true,
+            style: ParagraphStyle::Balanced,
+            commands: true,
+            language: result.language.clone(),
+        };
+        // Read the stored profile so the CLI sees what the app would see. It is
+        // never written here: a diagnostic run must not train the user's app.
+        let prior = Rhythm::load_or_default(&Rhythm::default_path());
+        let formatted = format::format(&cleaned, &segments, &format_options, &prior);
+        eprintln!(
+            "format: {} paragraph break(s), {} command(s), prior median {} ms",
+            formatted.breaks, formatted.commands, prior.median_gap_ms
+        );
+        println!("{}", formatted.text);
+    } else {
+        println!("{}", result.text);
+    }
     eprintln!(
         "{}: {:.0} ms wall, {:.0} ms native (mel {:.0}, encode {:.0}, decode {:.0}), language {}",
         file.display(),
@@ -138,7 +170,63 @@ fn transcribe(args: &[String]) -> Result<()> {
         result.timings.decode_ms,
         result.language.as_deref().unwrap_or("auto"),
     );
+    if options.timings {
+        print_timings(&result.segments);
+    }
     Ok(())
+}
+
+/// Print the decoder rows and the pause statistics a formatting rule would see.
+///
+/// The text stays on stdout so `draftctl transcribe file.wav > out.txt` keeps
+/// working; everything here goes to stderr. The median and p90 gap are printed
+/// because they are the numbers the paragraph rule actually uses, and tuning
+/// them against invented values is how a feature ships half done.
+fn print_timings(segments: &[Segment]) {
+    if segments.is_empty() {
+        eprintln!("segments: none reported (pause-based formatting would do nothing)");
+        return;
+    }
+
+    eprintln!("segments: {}", segments.len());
+    let mut gaps = Vec::new();
+    for (index, segment) in segments.iter().enumerate() {
+        let gap = index
+            .checked_sub(1)
+            .map(|previous| segment.gap_before(&segments[previous]));
+        if let Some(gap) = gap {
+            gaps.push(gap);
+        }
+        let gap_text = gap.map_or_else(|| "     -".to_owned(), |gap| format!("{gap:>6}"));
+        eprintln!(
+            "  {index:>3} {:>7.2} -> {:>7.2} s  gap {gap_text} ms  {:?}",
+            segment.start_ms as f64 / 1000.0,
+            segment.end_ms as f64 / 1000.0,
+            truncate(&segment.text, 72),
+        );
+    }
+
+    if gaps.is_empty() {
+        eprintln!("gaps: none (one segment, so there is no boundary to measure)");
+        return;
+    }
+    gaps.sort_unstable();
+    let median = gaps[gaps.len() / 2];
+    let p90 = gaps[(gaps.len() * 9 / 10).min(gaps.len() - 1)];
+    eprintln!(
+        "gaps: {}  median {median} ms  p90 {p90} ms  max {} ms",
+        gaps.len(),
+        gaps[gaps.len() - 1]
+    );
+}
+
+fn truncate(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    let mut out = text.chars().take(limit).collect::<String>();
+    out.push('…');
+    out
 }
 
 fn mic(args: &[String]) -> Result<()> {
@@ -831,6 +919,12 @@ struct EngineArgs {
     no_warmup: bool,
     paste: bool,
     trace: bool,
+    /// Print the decoder's segment timings after the text. Used to inspect real
+    /// clips before trusting any pause-based rule.
+    timings: bool,
+    /// Print the text after the formatting pass instead of the raw transcript.
+    /// Uses the same rules and the same stored pause profile as the app.
+    format: bool,
     hotkey: HotkeyConfig,
     transcription: TranscriptionOptions,
     files: Vec<PathBuf>,
@@ -847,6 +941,8 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
     let mut no_warmup = false;
     let mut paste = false;
     let mut trace = false;
+    let mut timings = false;
+    let mut format = false;
     let mut hotkey = HotkeyConfig::default();
     let mut language = None;
     let mut vocabulary = Vec::new();
@@ -931,6 +1027,8 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
             "--low-latency" => low_latency = true,
             "--paste" => paste = true,
             "--trace" => trace = true,
+            "--timings" => timings = true,
+            "--format" => format = true,
             "--hotkey" => {
                 index += 1;
                 let value = args.get(index).with_context(|| {
@@ -965,6 +1063,8 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
         no_warmup,
         paste,
         trace,
+        timings,
+        format,
         hotkey,
         transcription: TranscriptionOptions {
             language,

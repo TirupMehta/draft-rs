@@ -9,6 +9,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use draft_audio::Recorder;
+use draft_core::format::ParagraphStyle;
+use draft_core::rhythm::Rhythm;
 use draft_core::settings::Settings;
 use draft_engine::{ComputeBackend, EngineTimings};
 use draft_hotkey::{HotkeyConfig, HotkeyEvent, HotkeyListener};
@@ -25,7 +27,7 @@ use crate::startup;
 use crate::theme;
 use crate::tray;
 use crate::window_control;
-use crate::worker::{self, Job};
+use crate::worker::{self, FormatJob, Job};
 
 /// Stable names for the controls that ease. A control is identified by a
 /// static key so the animation state survives a repaint.
@@ -47,7 +49,7 @@ const MICROPHONE_KEYS: [&str; 8] = [
     "chip:microphone:6",
     "chip:microphone:7",
 ];
-const SECTION_KEYS: [&str; 7] = [
+const SECTION_KEYS: [&str; 8] = [
     "section:0",
     "section:1",
     "section:2",
@@ -55,8 +57,9 @@ const SECTION_KEYS: [&str; 7] = [
     "section:4",
     "section:5",
     "section:6",
+    "section:7",
 ];
-const SECTION_HOVER_KEYS: [&str; 7] = [
+const SECTION_HOVER_KEYS: [&str; 8] = [
     "section-hover:0",
     "section-hover:1",
     "section-hover:2",
@@ -64,6 +67,7 @@ const SECTION_HOVER_KEYS: [&str; 7] = [
     "section-hover:4",
     "section-hover:5",
     "section-hover:6",
+    "section-hover:7",
 ];
 const LEVEL_TEST_LENGTH: Duration = Duration::from_secs(4);
 /// The shortest gap between preview passes. A preview is display-only, so a
@@ -101,6 +105,7 @@ enum View {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
     Dictation,
+    Formatting,
     Audio,
     Recognition,
     Appearance,
@@ -113,6 +118,7 @@ impl Section {
     fn title(self) -> &'static str {
         match self {
             Section::Dictation => "Dictation",
+            Section::Formatting => "Formatting",
             Section::Audio => "Audio",
             Section::Recognition => "Recognition",
             Section::Appearance => "Appearance",
@@ -125,6 +131,7 @@ impl Section {
     fn summary(self) -> &'static str {
         match self {
             Section::Dictation => "How a dictation starts, ends, and reaches the page.",
+            Section::Formatting => "How a finished transcript is shaped before it lands.",
             Section::Audio => "Which microphone Draft listens to.",
             Section::Recognition => "The model that turns speech into text.",
             Section::Appearance => "How Draft looks on this screen.",
@@ -134,9 +141,10 @@ impl Section {
         }
     }
 
-    fn all() -> [Section; 7] {
+    fn all() -> [Section; 8] {
         [
             Section::Dictation,
+            Section::Formatting,
             Section::Audio,
             Section::Recognition,
             Section::Appearance,
@@ -149,12 +157,13 @@ impl Section {
     fn index(self) -> usize {
         match self {
             Section::Dictation => 0,
-            Section::Audio => 1,
-            Section::Recognition => 2,
-            Section::Appearance => 3,
-            Section::Privacy => 4,
-            Section::Advanced => 5,
-            Section::Credits => 6,
+            Section::Formatting => 1,
+            Section::Audio => 2,
+            Section::Recognition => 3,
+            Section::Appearance => 4,
+            Section::Privacy => 5,
+            Section::Advanced => 6,
+            Section::Credits => 7,
         }
     }
 }
@@ -184,6 +193,7 @@ fn initial_section() -> Section {
     #[cfg(debug_assertions)]
     if let Ok(name) = std::env::var("DRAFT_SECTION") {
         match name.as_str() {
+            "formatting" => return Section::Formatting,
             "audio" => return Section::Audio,
             "recognition" => return Section::Recognition,
             "appearance" => return Section::Appearance,
@@ -245,6 +255,10 @@ pub struct DraftApp {
     preview_delay: Duration,
     serial: u64,
     last: Option<LastResult>,
+    /// The speaker's measured pause profile, as last reported by the worker.
+    /// It is a read-only mirror for the Formatting pane; the worker owns the
+    /// file and is the only writer.
+    rhythm: Rhythm,
     error: Option<String>,
     notice: Option<String>,
     model: PathBuf,
@@ -393,6 +407,18 @@ impl DraftApp {
             "toggle-state:startup",
             if settings.launch_at_startup { 1.0 } else { 0.0 },
         );
+        motion.set(
+            "toggle-state:paragraphs",
+            if settings.paragraphs { 1.0 } else { 0.0 },
+        );
+        motion.set(
+            "toggle-state:commands",
+            if settings.voice_commands { 1.0 } else { 0.0 },
+        );
+        motion.set(
+            "toggle-state:rhythm",
+            if settings.learn_rhythm { 1.0 } else { 0.0 },
+        );
 
         Self {
             phase: if hotkey_error.is_some() {
@@ -426,6 +452,7 @@ impl DraftApp {
             preview_delay: PREVIEW_BASE_DELAY,
             serial: 0,
             last: None,
+            rhythm: Rhythm::load_or_default(&Rhythm::default_path()),
             error: initial_error,
             notice,
             model: model_display,
@@ -901,6 +928,7 @@ impl DraftApp {
             serial: self.serial,
             preview: true,
             paste: false,
+            format: FormatJob::default(),
         };
         if self.jobs.send(job).is_ok() {
             self.preview_pending = true;
@@ -961,8 +989,10 @@ impl DraftApp {
                 audio_s,
                 pasted,
                 paste_error,
+                rhythm,
             } => {
                 self.pending_jobs = self.pending_jobs.saturating_sub(1);
+                self.rhythm = rhythm;
                 tracing::info!(
                     audio_s,
                     engine_ms = elapsed.as_millis(),
@@ -1077,6 +1107,12 @@ impl DraftApp {
                     serial: self.serial,
                     preview: false,
                     paste: self.paste_enabled,
+                    format: FormatJob {
+                        paragraphs: self.settings.paragraphs,
+                        style: ParagraphStyle::from_name(&self.settings.paragraph_style),
+                        commands: self.settings.voice_commands,
+                        learn_rhythm: self.settings.learn_rhythm,
+                    },
                 };
                 // Announce the final before it enters the queue so the worker
                 // drops any preview that is still waiting ahead of it.
@@ -1211,6 +1247,71 @@ impl DraftApp {
             "Transcripts are pasted at the cursor.".to_owned()
         } else {
             "Transcripts stay in Draft. Use Paste last to insert one.".to_owned()
+        });
+        cx.notify();
+    }
+
+    fn set_paragraphs(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.paragraphs == enabled {
+            return;
+        }
+        self.settings.paragraphs = enabled;
+        self.motion
+            .set_hover("toggle-state:paragraphs", if enabled { 1.0 } else { 0.0 });
+        self.save_settings();
+        self.notice = Some(if enabled {
+            "Transcripts will break into paragraphs where you pause.".to_owned()
+        } else {
+            "Transcripts will stay one block of text.".to_owned()
+        });
+        cx.notify();
+    }
+
+    fn set_paragraph_style(&mut self, style: ParagraphStyle, cx: &mut Context<Self>) {
+        if ParagraphStyle::from_name(&self.settings.paragraph_style) == style {
+            return;
+        }
+        self.settings.paragraph_style = style.name().to_owned();
+        self.save_settings();
+        self.notice = Some(
+            match style {
+                ParagraphStyle::Conservative => "Fewer breaks: only clear topic changes.",
+                ParagraphStyle::Balanced => "Balanced: a break at a real pause.",
+                ParagraphStyle::Aggressive => "More breaks: structure over a mid-thought cut.",
+            }
+            .to_owned(),
+        );
+        cx.notify();
+    }
+
+    fn set_voice_commands(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.voice_commands == enabled {
+            return;
+        }
+        self.settings.voice_commands = enabled;
+        self.motion
+            .set_hover("toggle-state:commands", if enabled { 1.0 } else { 0.0 });
+        self.save_settings();
+        self.notice = Some(if enabled {
+            "Spoken commands are on. Say them as their own phrase.".to_owned()
+        } else {
+            "Spoken commands are off. Those words are transcribed as speech.".to_owned()
+        });
+        cx.notify();
+    }
+
+    fn set_learn_rhythm(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.learn_rhythm == enabled {
+            return;
+        }
+        self.settings.learn_rhythm = enabled;
+        self.motion
+            .set_hover("toggle-state:rhythm", if enabled { 1.0 } else { 0.0 });
+        self.save_settings();
+        self.notice = Some(if enabled {
+            "Draft will keep learning your pause from each dictation.".to_owned()
+        } else {
+            "Draft keeps the pause it already learned and stops measuring.".to_owned()
         });
         cx.notify();
     }
@@ -2230,6 +2331,7 @@ impl DraftApp {
 
         let rows: Vec<AnyElement> = match section {
             Section::Dictation => self.dictation_rows(palette, cx),
+            Section::Formatting => self.formatting_rows(palette, cx),
             Section::Audio => self.audio_rows(palette, cx),
             Section::Recognition => self.recognition_rows(palette, cx),
             Section::Appearance => self.appearance_rows(palette, cx),
@@ -2419,6 +2521,110 @@ impl DraftApp {
                 content,
             )
             .into_any_element(),
+        ]
+    }
+
+    /// The formatting pane. Every control here describes something the app
+    /// actually does to the text; nothing is a placeholder for a later version.
+    fn formatting_rows(
+        &mut self,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let app = cx.entity().downgrade();
+
+        let paragraphs = self
+            .toggle(
+                &app,
+                palette,
+                "toggle:paragraphs",
+                "toggle-state:paragraphs",
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.paragraphs;
+                this.set_paragraphs(enabled, cx);
+            }));
+
+        let mut style_chips = Vec::new();
+        for (index, style) in [
+            ParagraphStyle::Conservative,
+            ParagraphStyle::Balanced,
+            ParagraphStyle::Aggressive,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let key: &'static str = match index {
+                0 => "chip:style:0",
+                1 => "chip:style:1",
+                _ => "chip:style:2",
+            };
+            style_chips.push(
+                self.chip(
+                    &app,
+                    palette,
+                    key,
+                    style_label(style),
+                    ParagraphStyle::from_name(&self.settings.paragraph_style) == style,
+                )
+                .flex_1()
+                .justify_center()
+                .id(("style", index))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_paragraph_style(style, cx))),
+            );
+        }
+        let styles = div().flex().w_full().gap(px(6.0)).children(style_chips);
+
+        let commands = self
+            .toggle(&app, palette, "toggle:commands", "toggle-state:commands")
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.voice_commands;
+                this.set_voice_commands(enabled, cx);
+            }));
+
+        let rhythm = self
+            .toggle(&app, palette, "toggle:rhythm", "toggle-state:rhythm")
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.learn_rhythm;
+                this.set_learn_rhythm(enabled, cx);
+            }));
+
+        // The readout is the real stored number, or an honest statement that
+        // there is no number yet. It is never a sample value.
+        let rhythm_description = if self.rhythm.is_empty() {
+            "Not measured yet. Draft learns it as you dictate.".to_owned()
+        } else {
+            let clips = self.rhythm.clips;
+            format!(
+                "Your usual pause: {:.1} s, from {} {}.",
+                self.rhythm.median_gap_ms as f64 / 1000.0,
+                clips,
+                if clips == 1 {
+                    "dictation"
+                } else {
+                    "dictations"
+                }
+            )
+        };
+
+        vec![
+            setting_block_with_control(
+                palette,
+                "Paragraphs",
+                "Break at a real pause. Words are never changed.",
+                paragraphs,
+                styles,
+            )
+            .into_any_element(),
+            setting_block_with_control(
+                palette,
+                "Spoken commands",
+                "Say it alone, with a pause on each side.",
+                commands,
+                command_reference(palette),
+            )
+            .into_any_element(),
+            setting_row(palette, "Learn my rhythm", &rhythm_description, rhythm).into_any_element(),
         ]
     }
 
@@ -2723,18 +2929,23 @@ impl DraftApp {
             .id("open-data")
             .on_click(cx.listener(|this, _, _, cx| this.open_data_folder(cx)));
 
+        // One is not "1 dictations". The count is real, so the grammar has to be
+        // too.
+        let history_description = if history_count == 1 {
+            format!(
+                "1 dictation stored in {}",
+                draft_core::paths::data_dir_label()
+            )
+        } else {
+            format!(
+                "{history_count} dictations stored in {}",
+                draft_core::paths::data_dir_label()
+            )
+        };
+
         vec![
             lead.into_any_element(),
-            setting_row(
-                palette,
-                "Local history",
-                &format!(
-                    "{history_count} dictations stored in {}",
-                    draft_core::paths::data_dir_label()
-                ),
-                clear,
-            )
-            .into_any_element(),
+            setting_row(palette, "Local history", &history_description, clear).into_any_element(),
             setting_row(
                 palette,
                 "Data folder",
@@ -3194,6 +3405,52 @@ fn licenses_dir() -> Option<std::path::PathBuf> {
     Some(beside)
 }
 
+/// The three break styles as a person would describe them. The stored names
+/// (`conservative`, `balanced`, `aggressive`) are an implementation detail.
+fn style_label(style: ParagraphStyle) -> &'static str {
+    match style {
+        ParagraphStyle::Conservative => "Fewer breaks",
+        ParagraphStyle::Balanced => "Balanced",
+        ParagraphStyle::Aggressive => "More breaks",
+    }
+}
+
+/// The command reference: the phrases the app listens for, and what each does.
+/// The wording mirrors `draft_core::format::command_for`; this pane is a
+/// reference for the person, not a second source of truth.
+fn command_reference(palette: &theme::Palette) -> Div {
+    let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
+    for (phrase, meaning) in [
+        ("new paragraph", "Start a new paragraph"),
+        ("new line", "Start a new line"),
+        ("scratch that", "Delete the last sentence"),
+    ] {
+        list = list.child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(theme::space::MD))
+                .child(
+                    div()
+                        .font_family(theme::mono_font())
+                        .text_size(px(theme::type_size::META))
+                        .line_height(px(theme::line::META))
+                        .text_color(palette.text)
+                        .child(phrase),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
+                        .text_color(palette.tertiary)
+                        .child(meaning),
+                ),
+        );
+    }
+    list
+}
+
 /// A label and its explanation, with the control on the right.
 fn setting_row(
     palette: &theme::Palette,
@@ -3259,6 +3516,54 @@ fn setting_block(
                 .line_height(px(theme::line::SMALL))
                 .text_color(palette.tertiary)
                 .child(description.to_owned()),
+        )
+        .child(content)
+}
+
+/// A block whose switch sits on the header line, with content underneath.
+/// Used where the switch governs the block rather than a single value.
+fn setting_block_with_control(
+    palette: &theme::Palette,
+    title: &str,
+    description: &str,
+    control: impl IntoElement,
+    content: impl IntoElement,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(theme::space::SM))
+        .py(px(theme::space::MD))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(theme::space::LG))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .child(
+                            div()
+                                .text_size(px(theme::type_size::BODY))
+                                .line_height(px(theme::line::BODY))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(palette.text)
+                                .child(title.to_owned()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(theme::type_size::SMALL))
+                                .line_height(px(theme::line::SMALL))
+                                .text_color(palette.tertiary)
+                                .child(description.to_owned()),
+                        ),
+                )
+                .child(div().flex_shrink_0().child(control)),
         )
         .child(content)
 }

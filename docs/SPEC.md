@@ -34,7 +34,7 @@ architecture only; no Hex code, assets, copy, or branding is used.
 ## 3. Product principles
 
 1. **Local by default.** Transcription never leaves the machine. Network is for
-   model downloads, updates, and an explicitly enabled rewrite provider.
+   model downloads and updates, and nothing else.
 2. **Streaming first.** Words appear while you speak. Release should feel like
    punctuation, not like waiting.
 3. **The keyboard is sacred.** A dictation shortcut never leaks into the target
@@ -91,6 +91,11 @@ shell over the same core, not a separate product.
 - Model manager: download, checksum, install, select, and delete models.
 - Local History with retention windows, search, copy, delete, and clear.
 - Corrections, taught words, and hotwords applied before paste.
+- Deterministic formatting of a finished transcript: paragraph breaks at real
+  pauses, measured against the speaker's own learned rhythm. No rewrite, no
+  reordering, no added or dropped words.
+- Spoken commands that must be their own utterance, with real silence on both
+  sides: "new paragraph", "new line", and "scratch that".
 - Launch at login (Windows tray-first), optional sounds, light/dark theme,
   interface language later.
 - Local diagnostics: NDJSON event log plus a human-readable process log.
@@ -101,13 +106,19 @@ shell over the same core, not a separate product.
   the foreground application (and browser host later).
 - Ordered text transformations: lowercase, sentence case, no trailing
   punctuation, custom TypeScript later.
-- Optional LLM rewrite through a local OpenAI-compatible endpoint. Off by
-  default; failed rewrite preserves the local transcript.
-- Voice commands on desktop: "scratch that", "new paragraph", "new line",
-  "send it", "select all", "press enter".
+- More voice commands on desktop: "send it", "select all", "press enter".
+- Opt-in lists: numbered and bulleted, from explicit enumeration or a spoken
+  command (0.3.1).
 - Signed installer, silent per-user install, Start Menu entry, clean uninstall.
 - Signed auto-update with version ordering, checksum verification, and rollback.
 - ARM64 build.
+
+### Rejected
+
+- **LLM rewrite.** An optional rewrite pass through a local OpenAI-compatible
+  endpoint was planned. It is rejected: a rewrite can change a word the speaker
+  said, and the formatting contract is that it never does. Structure comes from
+  pauses and explicit commands, both of which are measurable and reversible.
 
 ### Later
 
@@ -135,7 +146,7 @@ Platform input hook (Win32 hook / CGEventTap / evdev)
   -> Capture owner (authoritative 16 kHz mono timeline, bounded ring buffer)
        |-> live audio chunks -> inference thread -> stream preview -> HUD
        |-> finished clip     -> inference thread -> final transcript
-  -> Text pipeline (corrections, hotwords, transformations, optional rewrite)
+  -> Text pipeline (corrections, hotwords, deterministic formatting)
   -> Output worker (single ordered queue) -> clipboard/paste -> History
 ```
 
@@ -250,8 +261,7 @@ bounds only; if v3.5 is faster, v3.5 wins.
 - History timestamps are Unix milliseconds; `draftctl history` prints them as UTC
   so the display never claims a local timezone it cannot know.
 - Diagnostic logs may contain transcript text; they stay local and are rotated.
-- Network requests are limited to model downloads, update checks, and an
-  explicitly configured rewrite provider.
+- Network requests are limited to model downloads and update checks.
 
 ## 11. Milestones
 
@@ -305,8 +315,8 @@ M4-M7 are not started.
 ### M5 - Modes and commands
 
 - Foreground-app detection and per-app Modes.
-- Transformations and optional rewrite.
-- Voice commands.
+- Transformations.
+- More voice commands: send, select all, press enter.
 - **Done when:** a mode for VS Code applies only in VS Code and a global mode
   applies everywhere else.
 

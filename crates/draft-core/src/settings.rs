@@ -39,6 +39,19 @@ pub struct Settings {
     /// Which palette the interface uses. `light` is the default; `system`
     /// follows the operating system.
     pub appearance: String,
+    /// Whether a finished transcript breaks into paragraphs where the speaker
+    /// paused. On by default: a newline pastes harmlessly almost everywhere,
+    /// and long dictation without it is a wall of text.
+    pub paragraphs: bool,
+    /// `conservative`, `balanced` (the default), or `aggressive`. How much of a
+    /// pause counts as a paragraph break, relative to the speaker's own rhythm.
+    pub paragraph_style: String,
+    /// Whether spoken commands such as `new paragraph` and `scratch that` are
+    /// obeyed. On by default; a command only fires when it is its own utterance.
+    pub voice_commands: bool,
+    /// Whether each clip may update the stored pause profile. Turning this off
+    /// keeps the existing numbers and stops learning new ones.
+    pub learn_rhythm: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +64,10 @@ impl Default for Settings {
             live_preview: false,
             launch_at_startup: true,
             appearance: "light".to_owned(),
+            paragraphs: true,
+            paragraph_style: "balanced".to_owned(),
+            voice_commands: true,
+            learn_rhythm: true,
         }
     }
 }
@@ -133,6 +150,10 @@ mod tests {
         assert!(!settings.live_preview);
         assert!(settings.launch_at_startup);
         assert_eq!(settings.appearance, "light");
+        assert!(settings.paragraphs, "paragraphs ship on");
+        assert_eq!(settings.paragraph_style, "balanced");
+        assert!(settings.voice_commands, "commands ship on");
+        assert!(settings.learn_rhythm, "learning ships on");
     }
 
     #[test]
@@ -155,6 +176,10 @@ mod tests {
             live_preview: true,
             launch_at_startup: false,
             appearance: "dark".to_owned(),
+            paragraphs: false,
+            paragraph_style: "aggressive".to_owned(),
+            voice_commands: false,
+            learn_rhythm: false,
         };
 
         settings.save(&path).unwrap();
@@ -197,6 +222,11 @@ mod tests {
             settings.appearance, "light",
             "older files use the light default"
         );
+        assert!(
+            settings.paragraphs && settings.voice_commands && settings.learn_rhythm,
+            "older files opt into the formatting defaults"
+        );
+        assert_eq!(settings.paragraph_style, "balanced");
     }
 
     #[test]

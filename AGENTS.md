@@ -259,12 +259,50 @@ when there is no sound.
 | `live_preview` | bool | false | show partial text while speaking (extra GPU work) |
 | `launch_at_startup` | bool | true | start in the tray at sign-in |
 | `appearance` | string | `"light"` | `light` (default), `dark`, or `system` |
+| `paragraphs` | bool | true | break a finished transcript at real pauses |
+| `paragraph_style` | string | `"balanced"` | `conservative`, `balanced`, `aggressive` |
+| `voice_commands` | bool | true | obey isolated `new paragraph` / `new line` / `scratch that` |
+| `learn_rhythm` | bool | true | let each clip update the stored pause profile |
 
 Missing fields fall back to the defaults, so adding a field is a compatible
 change. Unknown fields are ignored.
 
 `paste` is applied per job (`Job.paste`), so the switch takes effect without a
 restart. `--no-paste` on the command line turns it off for one launch.
+
+### Formatting contract
+
+`crates/draft-core/src/format.rs` owns every rule that changes the shape of a
+finished transcript, and it runs once, after `clean_text` and before paste.
+
+The invariant is **formatting never changes a word**: nothing is added, dropped,
+reordered, or respelled. With commands off, deleting every whitespace character
+from input and output must produce the same string. A unit test enforces it.
+`scratch that` is the one deliberate exception, because the speaker asked for
+words to be removed.
+
+The rules are deterministic and pause-based, never semantic:
+
+* A paragraph break needs a sentence end, a gap of at least
+  `max(style floor, multiplier x the speaker's median gap)`, at least 12 words
+  behind it, and at least 4 words left ahead.
+* It never breaks in front of a continuation word (`and`, `but`, `so`,
+  `because`, `which`, `that`, ...), because that pause is a breath, not a topic
+  change.
+* Past 110 words in one paragraph, any sentence-end pause of 150 ms or more
+  counts, so a monotone speaker still gets structure.
+* A command counts only when it is its own decoder row with at least 300 ms of
+  silence on both sides, and commands are English-only.
+* If the engine reports no segment timings, or the rows do not align with the
+  text word-for-word, `format()` returns the text untouched. Guessing is worse
+  than doing nothing.
+
+`crates/draft-core/src/rhythm.rs` stores the learned profile in
+`%LOCALAPPDATA%\Draft4\rhythm.json` (median gap, p90 gap, clip count), folded in
+with a 25% moving average. It is read and written only on the worker thread.
+
+There is **no rewrite pass and there will not be one.** A model that rewrites
+can change a word, and that breaks the contract above. Do not add one.
 
 ---
 
@@ -275,6 +313,7 @@ restart. `--no-paste` on the command line turns it off for one launch.
 | Settings | `%LOCALAPPDATA%\Draft4\settings.json` |
 | Model | `%LOCALAPPDATA%\Draft4\models\whisper-large-v3-turbo-F16.gguf` |
 | History | `%LOCALAPPDATA%\Draft4\history.json` (override with `DRAFT_HISTORY_PATH`) |
+| Pause profile | `%LOCALAPPDATA%\Draft4\rhythm.json` |
 | Logs | `%LOCALAPPDATA%\Draft4\logs\draft.log.YYYY-MM-DD` |
 | Settings override | `DRAFT_SETTINGS_PATH` |
 | Model override | `DRAFT_MODEL_PATH` |
@@ -299,7 +338,7 @@ cargo build --workspace --release
 Get-Process draft -ErrorAction SilentlyContinue | Stop-Process -Force
 Copy-Item target\release\draft.exe dist\draft.exe -Force
 .\scripts\build-installer.ps1
-Start-Process dist\Draft-Setup-0.2.1.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+Start-Process dist\Draft-Setup-0.3.0.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
 ```
 
 Notes:

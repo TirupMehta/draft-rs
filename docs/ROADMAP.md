@@ -4,16 +4,17 @@ The authoritative build order. Each milestone ends with something a user can
 run, not a folder of abstractions. Desktop first, then mobile over the same
 core.
 
-## Current state (2026-10-25)
+## Current state (2026-10-27)
 
 Windows x64 is the supported release. The hold-to-talk loop, tray, click-through
 HUD, persisted shortcut/microphone/model settings, microphone level check and
-device fallback, the pinned resumable model installer, and the release Vulkan
-benchmark are working. An Apple Silicon macOS preview builds, links Metal,
-bundles `Draft.app`, ad-hoc signs it, and ships as a DMG; it has not been run on
-a physical Mac. The open release gates are real-speech WER parity, a repeatable
-end-to-end paste run, installer and signed updates, and macOS runtime
-verification. Measured latency lives in [`PERFORMANCE.md`](PERFORMANCE.md).
+device fallback, the pinned resumable model installer, deterministic formatting
+(adaptive paragraphs plus spoken commands), and the release Vulkan benchmark are
+working. An Apple Silicon macOS preview builds, links Metal, bundles `Draft.app`,
+ad-hoc signs it, and ships as a DMG; it has not been run on a physical Mac. The
+open release gates are real-speech WER parity, a repeatable end-to-end paste run,
+installer and signed updates, and macOS runtime verification. Measured latency
+lives in [`PERFORMANCE.md`](PERFORMANCE.md).
 
 Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 `%LOCALAPPDATA%\Draft` folder is never read or overwritten.
@@ -96,6 +97,16 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [x] Launch at login on Windows: a per-user Run entry starts Draft silently in
       the tray, with a Settings > Startup toggle.
 - [x] Optional light/dark theme with a system-following mode.
+- [x] Deterministic formatting: paragraph breaks only at sentence ends where the
+      pause clears the speaker's own learned median (with a floor, a
+      never-before-a-continuation rule, and a relief rule for long monotone
+      stretches). The word-preservation invariant is unit-tested.
+- [x] Learned pause profile (`rhythm.json`): median and p90 gap folded in with a
+      25% moving average, saved atomically, and shown honestly in Settings.
+- [x] Voice commands as isolated utterances: `new paragraph`, `new line`, and
+      `scratch that`. English-only, gated on the detected language.
+- [x] Settings > Formatting: paragraphs, break style, spoken commands, the
+      learned pause readout, and a command reference.
 - [ ] Optional sounds.
 
 ## M4 - Distribution
@@ -111,8 +122,12 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 
 - [ ] Foreground application detection on every desktop OS.
 - [ ] Per-app modes with corrections and transformations.
-- [ ] Optional local/OpenAI-compatible rewrite.
-- [ ] Voice commands: scratch that, new paragraph, send, select all.
+- [x] Voice commands: `new paragraph`, `new line`, `scratch that`. Each must be
+      its own utterance with real silence on both sides.
+- [ ] More voice commands: send, select all, press enter.
+- [ ] Opt-in lists (0.3.1): numbered and bulleted runs, plus `make a list`.
+- [x] ~~Optional local/OpenAI-compatible rewrite.~~ **Rejected.** A rewrite can
+      change a word the speaker said; formatting must never do that.
 
 ## M6 - Desktop everywhere
 

@@ -97,12 +97,42 @@ impl EngineTimings {
     }
 }
 
+/// One timed span of a finished transcript.
+///
+/// Segment timings come from the model's own decoder rows and cost nothing
+/// extra: the native library already produces them for every run. They are the
+/// only honest signal a shell has for where a speaker paused, so they are
+/// carried through rather than discarded. `start_ms`/`end_ms` are measured from
+/// the first sample of the clip.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Segment {
+    /// The segment text, trimmed but otherwise exactly as decoded.
+    pub text: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+impl Segment {
+    /// Silence between this segment and the one before it, clamped at zero.
+    ///
+    /// A negative value would mean overlapping rows; treating that as "no
+    /// pause" is the only safe reading, because a formatting rule must never
+    /// break text on a measurement the decoder did not make.
+    pub fn gap_before(&self, previous: &Segment) -> i64 {
+        (self.start_ms - previous.end_ms).max(0)
+    }
+}
+
 /// A finished transcript.
 #[derive(Debug, Clone, Default)]
 pub struct Transcription {
     pub text: String,
     pub language: Option<String>,
     pub timings: EngineTimings,
+    /// Timed rows, in order, with empty rows removed. May be empty when the
+    /// backend does not report segment timings; callers must treat that as
+    /// "unknown" rather than "no pauses".
+    pub segments: Vec<Segment>,
     /// Wall time from entering the engine to the finished transcript.
     pub elapsed: Duration,
 }
@@ -222,6 +252,19 @@ impl Engine {
             encode_ms: transcript.timings.encode_ms,
             decode_ms: transcript.timings.decode_ms,
         };
+        // Rows with no text carry no boundary, and a row that starts before the
+        // previous one ends cannot describe a pause. Keep the rows that can be
+        // read and drop the rest, so a caller never has to guard against them.
+        let segments = transcript
+            .segments
+            .iter()
+            .filter(|row| !row.text.trim().is_empty())
+            .map(|row| Segment {
+                text: row.text.trim().to_owned(),
+                start_ms: row.t0_ms,
+                end_ms: row.t1_ms,
+            })
+            .collect::<Vec<_>>();
 
         debug!(
             elapsed_ms = elapsed.as_secs_f64() * 1000.0,
@@ -236,6 +279,7 @@ impl Engine {
             text: transcript.text,
             language: transcript.language,
             timings,
+            segments,
             elapsed,
         })
     }
