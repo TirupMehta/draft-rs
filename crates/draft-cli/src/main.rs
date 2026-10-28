@@ -146,6 +146,7 @@ fn transcribe(args: &[String]) -> Result<()> {
             paragraphs: true,
             style: ParagraphStyle::Balanced,
             commands: true,
+            lists: false,
             language: result.language.clone(),
         };
         // Read the stored profile so the CLI sees what the app would see. It is
@@ -153,8 +154,8 @@ fn transcribe(args: &[String]) -> Result<()> {
         let prior = Rhythm::load_or_default(&Rhythm::default_path());
         let formatted = format::format(&cleaned, &segments, &format_options, &prior);
         eprintln!(
-            "format: {} paragraph break(s), {} command(s), prior median {} ms",
-            formatted.breaks, formatted.commands, prior.median_gap_ms
+            "format: {} paragraph break(s), {} command(s), {} list item(s), prior median {} ms",
+            formatted.breaks, formatted.commands, formatted.items, prior.median_gap_ms
         );
         println!("{}", formatted.text);
     } else {
