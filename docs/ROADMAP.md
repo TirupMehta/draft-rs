@@ -125,7 +125,7 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
 - [x] Voice commands: `new paragraph`, `new line`, `scratch that`. Each must be
       its own utterance with real silence on both sides.
 - [ ] More voice commands: send, select all, press enter.
-- [ ] Opt-in lists (0.3.1): numbered and bulleted runs, plus `make a list`.
+- [x] Opt-in lists (0.3.1): numbered and bulleted runs, plus `make a list`.
 - [x] ~~Optional local/OpenAI-compatible rewrite.~~ **Rejected.** A rewrite can
       change a word the speaker said; formatting must never do that.
 

@@ -31,6 +31,7 @@ pub struct FormatJob {
     pub paragraphs: bool,
     pub style: ParagraphStyle,
     pub commands: bool,
+    pub lists: bool,
     pub learn_rhythm: bool,
 }
 
@@ -40,6 +41,7 @@ impl Default for FormatJob {
             paragraphs: true,
             style: ParagraphStyle::Balanced,
             commands: true,
+            lists: false,
             learn_rhythm: true,
         }
     }
@@ -290,6 +292,7 @@ fn format_final(
         paragraphs: job.paragraphs,
         style: job.style,
         commands: job.commands,
+        lists: job.lists,
         language: result.language.clone(),
     };
 
@@ -303,6 +306,7 @@ fn format_final(
     tracing::debug!(
         breaks = formatted.breaks,
         commands = formatted.commands,
+        items = formatted.items,
         segments = segments.len(),
         "formatted the final transcript"
     );

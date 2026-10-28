@@ -1402,7 +1402,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "draft"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "draft-audio",
@@ -1417,7 +1417,7 @@ dependencies = [
 
 [[package]]
 name = "draft-audio"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "cpal",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "draft-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "draft-desktop"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "color-eyre",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "draft-engine"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "draft-hotkey"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.0",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "draft-paste"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "arboard",

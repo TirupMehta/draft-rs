@@ -49,6 +49,10 @@ pub struct Settings {
     /// Whether spoken commands such as `new paragraph` and `scratch that` are
     /// obeyed. On by default; a command only fires when it is its own utterance.
     pub voice_commands: bool,
+    /// Whether enumerated runs and spoken `make a list` blocks become one item
+    /// per line. Off by default: a list marker is the only character the
+    /// formatter adds, and that deserves an explicit choice.
+    pub lists: bool,
     /// Whether each clip may update the stored pause profile. Turning this off
     /// keeps the existing numbers and stops learning new ones.
     pub learn_rhythm: bool,
@@ -67,6 +71,7 @@ impl Default for Settings {
             paragraphs: true,
             paragraph_style: "balanced".to_owned(),
             voice_commands: true,
+            lists: false,
             learn_rhythm: true,
         }
     }
@@ -153,6 +158,7 @@ mod tests {
         assert!(settings.paragraphs, "paragraphs ship on");
         assert_eq!(settings.paragraph_style, "balanced");
         assert!(settings.voice_commands, "commands ship on");
+        assert!(!settings.lists, "lists ship off");
         assert!(settings.learn_rhythm, "learning ships on");
     }
 
@@ -179,6 +185,7 @@ mod tests {
             paragraphs: false,
             paragraph_style: "aggressive".to_owned(),
             voice_commands: false,
+            lists: true,
             learn_rhythm: false,
         };
 
@@ -226,6 +233,7 @@ mod tests {
             settings.paragraphs && settings.voice_commands && settings.learn_rhythm,
             "older files opt into the formatting defaults"
         );
+        assert!(!settings.lists, "older files keep lists off");
         assert_eq!(settings.paragraph_style, "balanced");
     }
 

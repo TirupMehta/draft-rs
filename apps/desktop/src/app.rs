@@ -415,6 +415,7 @@ impl DraftApp {
             "toggle-state:commands",
             if settings.voice_commands { 1.0 } else { 0.0 },
         );
+        motion.set("toggle-state:lists", if settings.lists { 1.0 } else { 0.0 });
         motion.set(
             "toggle-state:rhythm",
             if settings.learn_rhythm { 1.0 } else { 0.0 },
@@ -1111,6 +1112,7 @@ impl DraftApp {
                         paragraphs: self.settings.paragraphs,
                         style: ParagraphStyle::from_name(&self.settings.paragraph_style),
                         commands: self.settings.voice_commands,
+                        lists: self.settings.lists,
                         learn_rhythm: self.settings.learn_rhythm,
                     },
                 };
@@ -1296,6 +1298,22 @@ impl DraftApp {
             "Spoken commands are on. Say them as their own phrase.".to_owned()
         } else {
             "Spoken commands are off. Those words are transcribed as speech.".to_owned()
+        });
+        cx.notify();
+    }
+
+    fn set_lists(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.settings.lists == enabled {
+            return;
+        }
+        self.settings.lists = enabled;
+        self.motion
+            .set_hover("toggle-state:lists", if enabled { 1.0 } else { 0.0 });
+        self.save_settings();
+        self.notice = Some(if enabled {
+            "Lists are on. Say make a list, or count items out loud.".to_owned()
+        } else {
+            "Lists are off. Items stay in one paragraph.".to_owned()
         });
         cx.notify();
     }
@@ -2589,6 +2607,13 @@ impl DraftApp {
                 this.set_learn_rhythm(enabled, cx);
             }));
 
+        let lists = self
+            .toggle(&app, palette, "toggle:lists", "toggle-state:lists")
+            .on_click(cx.listener(|this, _, _, cx| {
+                let enabled = !this.settings.lists;
+                this.set_lists(enabled, cx);
+            }));
+
         // The readout is the real stored number, or an honest statement that
         // there is no number yet. It is never a sample value.
         let rhythm_description = if self.rhythm.is_empty() {
@@ -2622,6 +2647,14 @@ impl DraftApp {
                 "Say it alone, with a pause on each side.",
                 commands,
                 command_reference(palette),
+            )
+            .into_any_element(),
+            setting_block_with_control(
+                palette,
+                "Lists",
+                "One item per line. Draft adds the marker, never a word.",
+                lists,
+                list_reference(palette),
             )
             .into_any_element(),
             setting_row(palette, "Learn my rhythm", &rhythm_description, rhythm).into_any_element(),
@@ -3419,12 +3452,34 @@ fn style_label(style: ParagraphStyle) -> &'static str {
 /// The wording mirrors `draft_core::format::command_for`; this pane is a
 /// reference for the person, not a second source of truth.
 fn command_reference(palette: &theme::Palette) -> Div {
+    phrase_reference(
+        palette,
+        &[
+            ("new paragraph", "Start a new paragraph"),
+            ("new line", "Start a new line"),
+            ("scratch that", "Delete the last sentence"),
+        ],
+    )
+}
+
+/// The list cues, shown only inside the Lists block. These words are inert
+/// until lists are on, which is why they live here rather than in the general
+/// command reference.
+fn list_reference(palette: &theme::Palette) -> Div {
+    phrase_reference(
+        palette,
+        &[
+            ("make a list", "Start a bulleted list"),
+            ("make a numbered list", "Start a numbered list"),
+            ("next item", "Start the next item"),
+            ("end list", "Return to prose"),
+        ],
+    )
+}
+
+fn phrase_reference(palette: &theme::Palette, rows: &[(&'static str, &'static str)]) -> Div {
     let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
-    for (phrase, meaning) in [
-        ("new paragraph", "Start a new paragraph"),
-        ("new line", "Start a new line"),
-        ("scratch that", "Delete the last sentence"),
-    ] {
+    for (phrase, meaning) in rows {
         list = list.child(
             div()
                 .flex()
@@ -3437,14 +3492,14 @@ fn command_reference(palette: &theme::Palette) -> Div {
                         .text_size(px(theme::type_size::META))
                         .line_height(px(theme::line::META))
                         .text_color(palette.text)
-                        .child(phrase),
+                        .child(*phrase),
                 )
                 .child(
                     div()
                         .text_size(px(theme::type_size::SMALL))
                         .line_height(px(theme::line::SMALL))
                         .text_color(palette.tertiary)
-                        .child(meaning),
+                        .child(*meaning),
                 ),
         );
     }

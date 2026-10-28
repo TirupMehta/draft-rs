@@ -96,6 +96,9 @@ shell over the same core, not a separate product.
   reordering, no added or dropped words.
 - Spoken commands that must be their own utterance, with real silence on both
   sides: "new paragraph", "new line", and "scratch that".
+- Opt-in lists: spoken ordinals or `make a list` cues become one item per line.
+  Lists are the only feature that adds characters (a line marker), and only
+  with the setting on.
 - Launch at login (Windows tray-first), optional sounds, light/dark theme,
   interface language later.
 - Local diagnostics: NDJSON event log plus a human-readable process log.

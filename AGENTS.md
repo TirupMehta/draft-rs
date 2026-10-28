@@ -262,6 +262,7 @@ when there is no sound.
 | `paragraphs` | bool | true | break a finished transcript at real pauses |
 | `paragraph_style` | string | `"balanced"` | `conservative`, `balanced`, `aggressive` |
 | `voice_commands` | bool | true | obey isolated `new paragraph` / `new line` / `scratch that` |
+| `lists` | bool | false | enumerated runs and spoken list blocks become one item per line |
 | `learn_rhythm` | bool | true | let each clip update the stored pause profile |
 
 Missing fields fall back to the defaults, so adding a field is a compatible
@@ -293,6 +294,11 @@ The rules are deterministic and pause-based, never semantic:
   counts, so a monotone speaker still gets structure.
 * A command counts only when it is its own decoder row with at least 300 ms of
   silence on both sides, and commands are English-only.
+* Lists (opt-in, default off) turn a run of three or more spoken ordinals, or a
+  `make a list` / `make a numbered list` block, into one item per line. They are
+  the only rule that may add characters: a line-leading `- ` or `N. ` marker.
+  No word is added. Inside a list, paragraph breaks are suppressed and item
+  boundaries use a lower pause threshold.
 * If the engine reports no segment timings, or the rows do not align with the
   text word-for-word, `format()` returns the text untouched. Guessing is worse
   than doing nothing.

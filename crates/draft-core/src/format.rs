@@ -1,18 +1,23 @@
 //! Deterministic formatting for a finished transcript.
 //!
-//! Two rules live here:
+//! Three rules live here:
 //!
 //! 1. **Voice commands.** An utterance that is exactly a command, surrounded by
 //!    real silence, becomes the structure it names. The command words are the
 //!    only words that disappear.
 //! 2. **Adaptive paragraphs.** The text breaks where the speaker paused,
 //!    measured against that speaker's own rhythm rather than a stopwatch.
+//! 3. **Lists.** A run of spoken ordinals, or an explicit `make a list` block,
+//!    becomes one item per line. This is the only rule that may add characters:
+//!    a line-leading `- ` or `1. ` marker. It never adds a word.
 //!
-//! Both rules work on byte ranges of the transcript, never on rebuilt strings,
+//! All rules work on byte ranges of the transcript, never on rebuilt strings,
 //! so a formatting pass cannot silently reorder or respell a word. The invariant
-//! is tested: with commands off, deleting every whitespace character from the
-//! input and the output must produce the same string. `scratch that` is the one
-//! deliberate exception, because the speaker asked for words to be removed.
+//! is tested: with commands off and lists off, deleting every whitespace
+//! character from the input and the output must produce the same string.
+//! `scratch that` is the one deliberate exception, because the speaker asked
+//! for words to be removed. With lists on, the same test runs after the
+//! line-leading markers are removed, so the words are still proven identical.
 //!
 //! Every rule needs the decoder's segment timings. When the engine reports no
 //! rows, or when the rows cannot be matched back to the transcript text, the
@@ -39,6 +44,20 @@ const RELIEF_GAP_MS: i64 = 150;
 
 /// A command has to be its own utterance: this much silence on each side.
 const COMMAND_GAP_MS: i64 = 300;
+
+/// A list item needs this much silence before it, before the speaker's own
+/// rhythm has been measured. It is deliberately below the paragraph floor:
+/// items are shorter than paragraphs, so the pause between them is shorter.
+const ITEM_FLOOR_MS: i64 = 350;
+
+/// Three items make a list. Two "first"/"second" sentences are how people
+/// write prose, and a two-item bulleted list is rarely worth the structure.
+const MIN_ENUMERATED_ITEMS: usize = 3;
+
+/// A spoken ordinal starts an item only when its own row begins after a real
+/// pause. Without this, a sentence that happens to open with "Second" joins a
+/// list it was never part of.
+const ENUM_GAP_MS: i64 = 250;
 
 /// One timed row of a finished transcript, in milliseconds from the start of
 /// the clip.
@@ -119,6 +138,10 @@ pub struct Options {
     pub paragraphs: bool,
     pub style: ParagraphStyle,
     pub commands: bool,
+    /// Whether enumerated runs and spoken list blocks become one item per line.
+    /// Off by default: a list marker is the only character this module adds,
+    /// and that deserves an explicit choice.
+    pub lists: bool,
     /// The language the engine detected, if it reported one. Commands are
     /// English only, so any other language turns them off for this job.
     pub language: Option<String>,
@@ -135,6 +158,8 @@ pub struct Formatted {
     pub breaks: usize,
     /// Commands recognised, for the log line.
     pub commands: usize,
+    /// List items opened, for the log line.
+    pub items: usize,
 }
 
 impl Formatted {
@@ -169,52 +194,140 @@ pub fn format(text: &str, segments: &[Segment], options: &Options, prior: &Rhyth
     if options.paragraphs {
         auto_break = paragraph_breaks(text, segments, &offsets, &gaps, threshold);
     }
+    let enumerated = if options.lists {
+        enumerated_items(text, segments, &offsets, &gaps)
+    } else {
+        vec![false; segments.len()]
+    };
 
-    let mut pieces: Vec<(String, Separator)> = Vec::with_capacity(segments.len());
-    let mut pending: Option<Separator> = None;
+    // Inside a list, an item boundary is easier to reach than a paragraph
+    // boundary, because an item is a shorter thought.
+    let item_threshold = (threshold / 2).max(ITEM_FLOOR_MS);
+
+    let mut pieces: Vec<Piece> = Vec::with_capacity(segments.len());
+    let mut pending: Option<Boundary> = None;
+    let mut list: Option<ListState> = None;
+    let mut item_start: Option<usize> = None;
     let mut commands = 0;
+    let mut items = 0;
 
     for index in 0..segments.len() {
         match actions[index] {
-            Action::None => {}
             Action::Paragraph => {
-                pending = Some(Separator::Paragraph);
+                pending = Some(Boundary::Paragraph);
                 commands += 1;
                 continue;
             }
             Action::Line => {
-                pending = Some(Separator::Line);
+                pending = Some(Boundary::Line);
                 commands += 1;
                 continue;
             }
             Action::Scratch => {
                 commands += 1;
                 scratch_last_sentence(&mut pieces);
-                pending = Some(Separator::Space);
+                // If the whole item went with the sentence, the next word has
+                // to open a fresh item, with its own marker.
+                if item_start.is_some_and(|start| pieces.len() <= start) {
+                    item_start = None;
+                }
+                pending = Some(Boundary::Space);
                 continue;
             }
-        }
-
-        if pieces.is_empty() {
-            // A command before the first word has nothing to separate.
-            pending = None;
-        } else {
-            let separator = pending.take().unwrap_or(if auto_break[index] {
-                Separator::Paragraph
-            } else {
-                Separator::Space
-            });
-            if let Some(last) = pieces.last_mut() {
-                last.1 = separator;
+            Action::ListStart(kind) => {
+                commands += 1;
+                list = Some(ListState::new(kind));
+                item_start = None;
+                pending = Some(if pieces.is_empty() {
+                    Boundary::None
+                } else {
+                    Boundary::Line
+                });
+                continue;
             }
+            Action::ListEnd if list.is_some() => {
+                commands += 1;
+                list = None;
+                item_start = None;
+                pending = Some(if pieces.is_empty() {
+                    Boundary::None
+                } else {
+                    Boundary::Paragraph
+                });
+                continue;
+            }
+            Action::Item if list.is_some() => {
+                commands += 1;
+                item_start = None;
+                pending = Some(if pieces.is_empty() {
+                    Boundary::None
+                } else {
+                    Boundary::Line
+                });
+                continue;
+            }
+            // A list command outside a list is an ordinary phrase. Removing it
+            // would drop words the speaker said for no structural gain.
+            _ => {}
         }
 
         let end = offsets.get(index + 1).copied().unwrap_or(text.len());
-        let piece = text[offsets[index]..end].trim();
-        if piece.is_empty() {
+        let piece_text = text[offsets[index]..end].trim();
+        if piece_text.is_empty() {
             continue;
         }
-        pieces.push((piece.to_owned(), Separator::Space));
+
+        let boundary = if pieces.is_empty() {
+            pending = None;
+            Boundary::None
+        } else if let Some(boundary) = pending.take() {
+            boundary
+        } else if let Some(state) = list.as_mut() {
+            // Inside a list a paragraph break is never right: it would leave a
+            // blank line in the middle of an item. The item boundary is a
+            // single newline instead.
+            if state.words > 0 && item_break(text, segments, &offsets, &gaps, index, item_threshold)
+            {
+                item_start = None;
+                Boundary::Line
+            } else {
+                Boundary::Space
+            }
+        } else if enumerated[index] {
+            // The first item of a run keeps a paragraph break if the pause
+            // earned one, so the list is separated from the prose above it.
+            // Every later item is a single line, so the list stays compact.
+            let first_of_run = index == 0 || !enumerated[index - 1];
+            if first_of_run && auto_break[index] {
+                Boundary::Paragraph
+            } else {
+                Boundary::Line
+            }
+        } else if auto_break[index] {
+            Boundary::Paragraph
+        } else {
+            Boundary::Space
+        };
+
+        let mut marker = None;
+        if let Some(state) = list.as_mut() {
+            if item_start.is_none() {
+                state.items += 1;
+                items += 1;
+                marker = state.marker(piece_text);
+                item_start = Some(pieces.len());
+                state.words = 0;
+            }
+            state.words += content_words(piece_text);
+        } else if enumerated[index] {
+            items += 1;
+        }
+
+        pieces.push(Piece {
+            text: piece_text.to_owned(),
+            before: boundary,
+            marker,
+        });
     }
 
     if pieces.is_empty() {
@@ -223,10 +336,11 @@ pub fn format(text: &str, segments: &[Segment], options: &Options, prior: &Rhyth
             observed,
             breaks: 0,
             commands,
+            items,
         };
     }
 
-    let mut out = String::with_capacity(text.len() + pieces.len() * 2);
+    let mut out = String::with_capacity(text.len() + pieces.len() * 4);
     // A leading punctuation-only token (a dash, an opening quote on its own)
     // sits before the first matched word. Keep it rather than losing it.
     let lead = text[..offsets[0]].trim();
@@ -235,18 +349,21 @@ pub fn format(text: &str, segments: &[Segment], options: &Options, prior: &Rhyth
         out.push(' ');
     }
     let mut breaks = 0;
-    for (index, (piece, _)) in pieces.iter().enumerate() {
+    for (index, piece) in pieces.iter().enumerate() {
         if index > 0 {
-            match pieces[index - 1].1 {
-                Separator::Space => out.push(' '),
-                Separator::Line => out.push('\n'),
-                Separator::Paragraph => {
+            match piece.before {
+                Boundary::None | Boundary::Space => out.push(' '),
+                Boundary::Line => out.push('\n'),
+                Boundary::Paragraph => {
                     out.push_str("\n\n");
                     breaks += 1;
                 }
             }
         }
-        out.push_str(piece);
+        if let Some(marker) = &piece.marker {
+            out.push_str(marker);
+        }
+        out.push_str(&piece.text);
     }
 
     Formatted {
@@ -254,6 +371,7 @@ pub fn format(text: &str, segments: &[Segment], options: &Options, prior: &Rhyth
         observed,
         breaks,
         commands,
+        items,
     }
 }
 
@@ -264,14 +382,65 @@ enum Action {
     Paragraph,
     Line,
     Scratch,
+    ListStart(ListKind),
+    ListEnd,
+    Item,
+}
+
+/// The two kinds of list the formatter can open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListKind {
+    Bullet,
+    Number,
 }
 
 /// What sits between two pieces of text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Separator {
+enum Boundary {
+    /// The first piece, or a command before the first word.
+    None,
     Space,
     Line,
     Paragraph,
+}
+
+/// One row of output, with the separator that goes in front of it.
+struct Piece {
+    text: String,
+    before: Boundary,
+    /// The list marker, when this row opens an item.
+    marker: Option<String>,
+}
+
+/// The open list, if any.
+struct ListState {
+    kind: ListKind,
+    /// Items opened so far, which is also the next number in a numbered list.
+    items: usize,
+    /// Words in the current item, so an item break needs something behind it.
+    words: usize,
+}
+
+impl ListState {
+    fn new(kind: ListKind) -> Self {
+        Self {
+            kind,
+            items: 0,
+            words: 0,
+        }
+    }
+
+    /// The marker for an item that is about to open.
+    ///
+    /// A numbered list does not number an item the speaker already numbered:
+    /// "1. First, buy milk" says the same thing twice.
+    fn marker(&self, item: &str) -> Option<String> {
+        match self.kind {
+            ListKind::Bullet => Some("- ".to_owned()),
+            ListKind::Number if starts_with_ordinal(item) => None,
+            ListKind::Number => Some(format!("{}. ", self.items)),
+        }
+    }
 }
 
 fn actions(segments: &[Segment], options: &Options) -> Vec<Action> {
@@ -284,6 +453,16 @@ fn actions(segments: &[Segment], options: &Options) -> Vec<Action> {
         let Some(action) = command_for(&segment.text) else {
             continue;
         };
+        // List commands are inert until the user turns lists on. They stay in
+        // the transcript as ordinary words, which is the honest result.
+        if !options.lists
+            && matches!(
+                action,
+                Action::ListStart(_) | Action::ListEnd | Action::Item
+            )
+        {
+            continue;
+        }
         if !is_isolated(segments, index) {
             continue;
         }
@@ -316,11 +495,21 @@ fn command_for(text: &str) -> Option<Action> {
         "new paragraph" | "new paragraphs" | "next paragraph" => Some(Action::Paragraph),
         "new line" | "new lines" | "newline" => Some(Action::Line),
         "scratch that" | "scratch this" | "scratch the last" => Some(Action::Scratch),
+        "make a list" | "start a list" | "start listing" => {
+            Some(Action::ListStart(ListKind::Bullet))
+        }
+        "make a numbered list" | "start a numbered list" | "make a number list" => {
+            Some(Action::ListStart(ListKind::Number))
+        }
+        "next item" | "new item" | "next bullet" | "next point" => Some(Action::Item),
+        "end list" | "end the list" | "close the list" | "thats the list" => Some(Action::ListEnd),
         _ => None,
     }
 }
 
-/// Lowercase, punctuation removed, single spaces.
+/// Lowercase, punctuation removed, single spaces. An apostrophe joins the two
+/// halves of a word ("that's" is "thats") instead of splitting it, so a command
+/// can be written the way people actually type it.
 fn normalize_command(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut space = false;
@@ -331,7 +520,7 @@ fn normalize_command(text: &str) -> String {
             }
             space = false;
             out.extend(ch.to_lowercase());
-        } else {
+        } else if !matches!(ch, '\'' | '’') {
             space = true;
         }
     }
@@ -353,12 +542,21 @@ fn is_isolated(segments: &[Segment], index: usize) -> bool {
 
 /// Remove the last sentence from the last piece, or the whole piece when it has
 /// only one. Returns nothing when there is no piece left.
-fn scratch_last_sentence(pieces: &mut Vec<(String, Separator)>) {
-    let Some((piece, separator)) = pieces.pop() else {
+fn scratch_last_sentence(pieces: &mut Vec<Piece>) {
+    let Some(piece) = pieces.pop() else {
         return;
     };
-    if let Some(head) = drop_last_sentence(&piece) {
-        pieces.push((head, separator));
+    let Piece {
+        text,
+        before,
+        marker,
+    } = piece;
+    if let Some(head) = drop_last_sentence(&text) {
+        pieces.push(Piece {
+            text: head,
+            before,
+            marker,
+        });
     }
 }
 
@@ -415,6 +613,108 @@ fn gaps(segments: &[Segment]) -> Vec<i64> {
         .windows(2)
         .map(|pair| pair[1].gap_before(&pair[0]))
         .collect()
+}
+
+/// Mark the rows that open an enumerated item.
+///
+/// A run is three or more consecutive ordinals, starting at "first" or "1",
+/// each on its own row, each after a real pause, and each after a sentence end.
+/// The ordinal is the speaker's own word, so this path adds no marker at all:
+/// the line break is the only change.
+fn enumerated_items(
+    text: &str,
+    segments: &[Segment],
+    offsets: &[usize],
+    gaps: &[i64],
+) -> Vec<bool> {
+    let mut items = vec![false; segments.len()];
+    let mut index = 0;
+
+    while index < segments.len() {
+        if ordinal_value(&segments[index].text) != Some(1) {
+            index += 1;
+            continue;
+        }
+        // The first item needs the same boundary as every later one: a
+        // sentence end and a real pause, or the start of the clip.
+        let opens = index == 0
+            || (gaps[index - 1] >= ENUM_GAP_MS && ends_sentence(&text[..offsets[index]]));
+        if !opens {
+            index += 1;
+            continue;
+        }
+
+        let mut run = vec![index];
+        let mut expected = 2;
+        let mut next = index + 1;
+        while next < segments.len() {
+            if gaps[next - 1] < ENUM_GAP_MS || !ends_sentence(&text[..offsets[next]]) {
+                break;
+            }
+            if ordinal_value(&segments[next].text) != Some(expected) {
+                break;
+            }
+            run.push(next);
+            expected += 1;
+            next += 1;
+        }
+
+        if run.len() >= MIN_ENUMERATED_ITEMS {
+            for item in &run {
+                items[*item] = true;
+            }
+            index = next;
+        } else {
+            index += 1;
+        }
+    }
+
+    items
+}
+
+/// The number a row opens with, when its first word is an ordinal. Digits are
+/// capped so a year or a quantity at the start of a row cannot look like one.
+fn ordinal_value(text: &str) -> Option<u32> {
+    let word = first_content_word(text).to_ascii_lowercase();
+    let value = match word.as_str() {
+        "first" => 1,
+        "second" => 2,
+        "third" => 3,
+        "fourth" => 4,
+        "fifth" => 5,
+        "sixth" => 6,
+        "seventh" => 7,
+        "eighth" => 8,
+        "ninth" => 9,
+        "tenth" => 10,
+        _ => match word.parse::<u32>() {
+            Ok(value) if (1..=20).contains(&value) => value,
+            _ => return None,
+        },
+    };
+    Some(value)
+}
+
+fn starts_with_ordinal(text: &str) -> bool {
+    ordinal_value(text).is_some()
+}
+
+/// Whether the pause before this row closes the current item and opens another.
+fn item_break(
+    text: &str,
+    segments: &[Segment],
+    offsets: &[usize],
+    gaps: &[i64],
+    index: usize,
+    threshold: i64,
+) -> bool {
+    if index == 0 {
+        return false;
+    }
+    let next_word = first_content_word(&segments[index].text);
+    ends_sentence(&text[..offsets[index]])
+        && !continues_thought(next_word)
+        && gaps[index - 1] >= threshold
 }
 
 /// Decide which boundaries become paragraph breaks.
@@ -584,6 +884,7 @@ mod tests {
             paragraphs: true,
             style: ParagraphStyle::Balanced,
             commands: true,
+            lists: false,
             language: Some("en".to_owned()),
         }
     }
@@ -1002,5 +1303,286 @@ mod tests {
             let formatted = format(&text, &segments, &options, &Rhythm::default());
             assert_words_preserved(&text, &formatted.text);
         }
+    }
+
+    fn list_options() -> Options {
+        let mut options = options();
+        options.lists = true;
+        options
+    }
+
+    /// Remove a line-leading list marker, then prove the words are untouched.
+    fn assert_list_words_preserved(input: &str, output: &str) {
+        assert_words_preserved(input, &strip_line_markers(output));
+    }
+
+    fn strip_line_markers(text: &str) -> String {
+        text.lines()
+            .map(|line| {
+                let line = line.trim_start();
+                if let Some(rest) = line.strip_prefix("- ") {
+                    return rest;
+                }
+                let digits = line.chars().take_while(char::is_ascii_digit).count();
+                if digits > 0 && line[digits..].starts_with(". ") {
+                    return &line[digits + 2..];
+                }
+                line
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn an_enumerated_run_becomes_one_item_per_line() {
+        let rows = [
+            ("First, buy milk.", 0),
+            ("Second, buy eggs.", 900),
+            ("Third, call mom.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(
+            formatted.text,
+            "First, buy milk.\nSecond, buy eggs.\nThird, call mom."
+        );
+        assert_eq!(formatted.items, 3);
+        assert_list_words_preserved(&text, &formatted.text);
+    }
+
+    #[test]
+    fn digit_ordinals_form_a_list() {
+        let rows = [
+            ("1. Buy milk.", 0),
+            ("2. Buy eggs.", 900),
+            ("3. Call mom.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, "1. Buy milk.\n2. Buy eggs.\n3. Call mom.");
+        assert_eq!(formatted.items, 3);
+        assert_words_preserved(&text, &formatted.text);
+    }
+
+    #[test]
+    fn two_ordinals_are_prose_not_a_list() {
+        let rows = [
+            ("First, buy milk.", 0),
+            ("Second, buy eggs.", 900),
+            ("Then we went home.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+        assert_eq!(formatted.items, 0);
+    }
+
+    #[test]
+    fn ordinals_inside_a_sentence_do_not_start_a_list() {
+        let rows = [
+            ("The first thing is milk.", 0),
+            ("The second thing is eggs.", 900),
+            ("The third thing is bread.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+    }
+
+    #[test]
+    fn an_enumerated_run_needs_a_real_pause() {
+        let rows = [
+            ("First, buy milk.", 0),
+            ("Second, buy eggs.", 100),
+            ("Third, call mom.", 100),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+    }
+
+    #[test]
+    fn an_enumerated_run_must_start_at_one() {
+        let rows = [
+            ("Second, buy eggs.", 0),
+            ("Third, call mom.", 900),
+            ("Fourth, buy bread.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+    }
+
+    #[test]
+    fn a_year_at_the_start_of_a_row_is_not_an_ordinal() {
+        let rows = [
+            ("2024 was a good year.", 0),
+            ("2025 was better.", 900),
+            ("2026 was the best.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+    }
+
+    #[test]
+    fn lists_off_leaves_an_enumerated_run_alone() {
+        let rows = [
+            ("First, buy milk.", 0),
+            ("Second, buy eggs.", 900),
+            ("Third, call mom.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+    }
+
+    #[test]
+    fn a_spoken_list_gets_bullets() {
+        let rows = [
+            ("Here is the shopping list.", 0),
+            ("Make a list.", 1_200),
+            ("Buy milk.", 1_200),
+            ("Buy eggs.", 1_200),
+            ("Call mom.", 1_200),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(
+            formatted.text,
+            "Here is the shopping list.\n- Buy milk.\n- Buy eggs.\n- Call mom."
+        );
+        assert_eq!(formatted.commands, 1);
+        assert_eq!(formatted.items, 3);
+    }
+
+    #[test]
+    fn a_numbered_list_adds_numbers() {
+        let rows = [
+            ("Make a numbered list.", 0),
+            ("Buy milk.", 1_000),
+            ("Buy eggs.", 1_000),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, "1. Buy milk.\n2. Buy eggs.");
+        assert_eq!(formatted.commands, 1);
+        assert_eq!(formatted.items, 2);
+    }
+
+    #[test]
+    fn a_numbered_list_uses_spoken_ordinals() {
+        let rows = [
+            ("Make a numbered list.", 0),
+            ("First, buy milk.", 1_000),
+            ("Second, buy eggs.", 1_000),
+            ("Third, call mom.", 1_000),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(
+            formatted.text,
+            "First, buy milk.\nSecond, buy eggs.\nThird, call mom."
+        );
+        assert_eq!(formatted.items, 3);
+    }
+
+    #[test]
+    fn next_item_splits_a_list() {
+        let rows = [
+            ("Make a list.", 0),
+            ("Buy milk and eggs.", 800),
+            ("Next item.", 800),
+            ("Call mom.", 800),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, "- Buy milk and eggs.\n- Call mom.");
+        assert_eq!(formatted.commands, 2);
+        assert_eq!(formatted.items, 2);
+    }
+
+    #[test]
+    fn end_list_returns_to_prose() {
+        let rows = [
+            ("Make a list.", 0),
+            ("Buy milk.", 800),
+            ("End list.", 800),
+            ("Then I went home.", 800),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, "- Buy milk.\n\nThen I went home.");
+        assert_eq!(formatted.commands, 2);
+        assert_eq!(formatted.breaks, 1);
+        assert_eq!(formatted.items, 1);
+    }
+
+    #[test]
+    fn a_list_command_outside_a_list_is_prose() {
+        let rows = [
+            ("That is the plan for the week.", 0),
+            ("Next item.", 900),
+            ("We will see how it goes.", 900),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.commands, 0);
+        assert_words_preserved(&text, &formatted.text);
+    }
+
+    #[test]
+    fn lists_off_keeps_the_cue_and_the_items_together() {
+        let rows = [
+            ("Here is the shopping list.", 0),
+            ("Make a list.", 1_200),
+            ("Buy milk.", 1_200),
+            ("Buy eggs.", 1_200),
+            ("Call mom.", 1_200),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &options(), &Rhythm::default());
+        assert_eq!(formatted.text, text);
+        assert_eq!(formatted.commands, 0);
+    }
+
+    #[test]
+    fn scratch_that_inside_a_list_removes_the_item() {
+        let rows = [
+            ("Make a list.", 0),
+            ("Buy milk.", 800),
+            ("Scratch that.", 800),
+            ("Buy eggs.", 800),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, "- Buy eggs.");
+        assert_eq!(formatted.commands, 2);
+    }
+
+    #[test]
+    fn a_list_cue_with_no_items_is_removed_cleanly() {
+        let rows = [("The plan is ready.", 0), ("Make a list.", 800)];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(formatted.text, "The plan is ready.");
+        assert_eq!(formatted.commands, 1);
+        assert_eq!(formatted.items, 0);
+    }
+
+    #[test]
+    fn a_list_never_changes_a_word() {
+        let rows = [
+            ("First, \"buy milk,\" she said.", 0),
+            ("Second, (and the eggs.)", 1_200),
+            ("Third, OK.", 1_200),
+        ];
+        let (text, segments) = build(&rows);
+        let formatted = format(&text, &segments, &list_options(), &Rhythm::default());
+        assert_eq!(
+            formatted.text,
+            "First, \"buy milk,\" she said.\nSecond, (and the eggs.)\nThird, OK."
+        );
+        assert_list_words_preserved(&text, &formatted.text);
     }
 }
