@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use transcribe_cpp::{
-    Backend, Model, ModelOptions, RunExtension, RunOptions, Session, WhisperRunOptions,
+    Backend, Model, ModelOptions, RunExtension, RunOptions, Session, SessionOptions,
+    WhisperRunOptions,
 };
 
 /// Everything that can stop the engine from producing text.
@@ -52,6 +53,10 @@ impl ComputeBackend {
 pub struct EngineConfig {
     pub model_path: PathBuf,
     pub backend: ComputeBackend,
+    /// CPU worker threads. `None` picks a CPU-friendly default when the model
+    /// resolves to the CPU backend, and the library default otherwise.
+    /// Overridden by `DRAFT_THREADS`.
+    pub threads: Option<i32>,
 }
 
 impl EngineConfig {
@@ -59,6 +64,7 @@ impl EngineConfig {
         Self {
             model_path: model_path.into(),
             backend: ComputeBackend::Auto,
+            threads: None,
         }
     }
 
@@ -66,6 +72,39 @@ impl EngineConfig {
         self.backend = backend;
         self
     }
+
+    /// Pin the CPU thread count. A value of 0 restores automatic selection.
+    pub fn threads(mut self, threads: Option<i32>) -> Self {
+        self.threads = threads;
+        self
+    }
+}
+
+/// Resolve the CPU thread count: an explicit config value, then
+/// `DRAFT_THREADS`, then automatic selection (0).
+fn resolve_threads(configured: Option<i32>) -> i32 {
+    configured
+        .or_else(|| {
+            std::env::var("DRAFT_THREADS")
+                .ok()
+                .and_then(|value| value.trim().parse().ok())
+        })
+        .unwrap_or(0)
+        .max(0)
+}
+
+/// CPU worker threads for local inference.
+///
+/// Using every logical CPU is slower, not faster: the decoder's short ops
+/// serialize on oversubscribed cores, and the UI and audio threads lose the
+/// headroom they need. Three quarters of the logical CPUs leaves a quarter for
+/// the rest of the app and measured 26-40% faster than the library default on
+/// a 16-thread machine. One thread is the floor.
+fn automatic_cpu_threads() -> i32 {
+    let logical = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    (logical * 3 / 4).max(1) as i32
 }
 
 /// Per-call transcription hints.
@@ -171,13 +210,21 @@ impl Engine {
             .device()
             .map(|device| device.name)
             .unwrap_or_else(|_| "unknown".to_owned());
-        let session = model.session()?;
+        let mut threads = resolve_threads(config.threads);
+        if threads == 0 && backend.eq_ignore_ascii_case("cpu") {
+            threads = automatic_cpu_threads();
+        }
+        let session = model.session_with(&SessionOptions {
+            n_threads: threads,
+            ..SessionOptions::default()
+        })?;
 
         info!(
             model = %config.model_path.display(),
             arch = %arch,
             backend = %backend,
             device = %device,
+            threads,
             load_ms = load_time.as_secs_f64() * 1000.0,
             "speech engine loaded"
         );

@@ -137,14 +137,22 @@ fn run(
     let backend_name = engine.backend().to_owned();
     let device = engine.device().to_owned();
     let load_ms = engine.load_time().as_millis();
-    let warmed = Instant::now();
-    if let Err(error) = engine.warm_up() {
-        let _ = events.send(Event::Failed(format!(
-            "Could not warm the model: {error:#}"
-        )));
-        return;
-    }
-    let warm_ms = warmed.elapsed().as_millis();
+    // The warm-up exists to compile GPU pipelines. On the CPU backend it is a
+    // full silent encode that only delays the first dictation, so skip it and
+    // report ready immediately.
+    let warm_ms = if backend_name.eq_ignore_ascii_case("cpu") {
+        tracing::info!("skipping warm-up on the CPU backend");
+        0
+    } else {
+        let warmed = Instant::now();
+        if let Err(error) = engine.warm_up() {
+            let _ = events.send(Event::Failed(format!(
+                "Could not warm the model: {error:#}"
+            )));
+            return;
+        }
+        warmed.elapsed().as_millis()
+    };
     tracing::info!(
         backend = %backend_name,
         device = %device,

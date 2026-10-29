@@ -80,6 +80,7 @@ Transcribe options:
   --backend auto|vulkan|cpu     Compute backend (default: auto)
   --language <code>             ISO language hint
   --low-latency                 Skip temperature fallback (preview-style decode)
+  --threads <n>                 CPU worker threads (default: library picks; env DRAFT_THREADS)
   --no-warmup                   Skip the untimed pipeline warm-up
   --timings                     Print decoder segment timings and pause stats
   --format                      Print the formatted text, not the raw transcript
@@ -920,6 +921,8 @@ struct EngineArgs {
     no_warmup: bool,
     paste: bool,
     trace: bool,
+    /// CPU worker threads; `None` uses the library default.
+    threads: Option<i32>,
     /// Print the decoder's segment timings after the text. Used to inspect real
     /// clips before trusting any pause-based rule.
     timings: bool,
@@ -942,6 +945,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
     let mut no_warmup = false;
     let mut paste = false;
     let mut trace = false;
+    let mut threads = None;
     let mut timings = false;
     let mut format = false;
     let mut hotkey = HotkeyConfig::default();
@@ -1025,6 +1029,15 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
                 );
             }
             "--no-warmup" => no_warmup = true,
+            "--threads" => {
+                index += 1;
+                threads = Some(
+                    args.get(index)
+                        .with_context(|| format!("{arg} needs a number"))?
+                        .parse()
+                        .with_context(|| format!("{arg} needs a number"))?,
+                );
+            }
             "--low-latency" => low_latency = true,
             "--paste" => paste = true,
             "--trace" => trace = true,
@@ -1064,6 +1077,7 @@ fn parse_engine_args(args: &[String]) -> Result<EngineArgs> {
         no_warmup,
         paste,
         trace,
+        threads,
         timings,
         format,
         hotkey,
@@ -1096,8 +1110,12 @@ fn parse_number(value: Option<&String>, flag: &str) -> Result<usize> {
 }
 
 fn load_engine(options: &EngineArgs) -> Result<Engine> {
-    Engine::load(&EngineConfig::new(&options.model).backend(options.backend))
-        .map_err(anyhow::Error::from)
+    Engine::load(
+        &EngineConfig::new(&options.model)
+            .backend(options.backend)
+            .threads(options.threads),
+    )
+    .map_err(anyhow::Error::from)
 }
 
 fn collect_wavs(dir: &Path) -> Result<Vec<PathBuf>> {

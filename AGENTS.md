@@ -344,7 +344,7 @@ cargo build --workspace --release
 Get-Process draft -ErrorAction SilentlyContinue | Stop-Process -Force
 Copy-Item target\release\draft.exe dist\draft.exe -Force
 .\scripts\build-installer.ps1
-Start-Process dist\Draft-Setup-0.3.0.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+Start-Process dist\Draft-Setup-0.3.1.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
 ```
 
 Notes:
@@ -386,7 +386,8 @@ NAME`, `--microphone NAME|default`, `--no-paste`, `--background`, `--settings
 PATH`.
 
 `--background` starts the window hidden in the tray; the sign-in Run entry uses
-it.
+it. `DRAFT_THREADS=<n>` pins the CPU worker threads; unset means three quarters
+of the logical CPUs on the CPU backend.
 
 `draft-hotkey` ignores synthetic keyboard input unless
 `DRAFT_ALLOW_INJECTED_KEYS` is set, so Draft's own paste chord can never start
@@ -400,6 +401,11 @@ a capture. That is the supported way to test the recording state.
   Any new animation must not repaint while nothing is happening.
 * Repaint budget: event poll 60 Hz, visible window 60 fps while audio is open,
   HUD 60 fps, and a hidden window is not repainted at all.
+* CPU fallback: the session asks for three quarters of the logical CPUs, not
+  all of them. Oversubscription slows the decoder and starves the UI; the
+  measured difference is 26-40%. `DRAFT_THREADS` overrides the count.
+* The warm-up pass is skipped on the CPU backend: it compiles GPU pipelines,
+  which a CPU build does not have, and it costs a full silent encode at launch.
 * Live preview is **off by default**. Each preview is a full GPU pass over the
   warm model; that is what made laptop fans spin. The final pass always uses
   the complete clip.

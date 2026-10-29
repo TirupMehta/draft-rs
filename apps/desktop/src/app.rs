@@ -787,6 +787,18 @@ impl DraftApp {
         if self.settings.live_preview == enabled {
             return;
         }
+        let cpu = self.backend_is_cpu();
+        if enabled && cpu {
+            // A preview is a whole extra encode. Offering the switch on the CPU
+            // backend would put words on screen only after the transcript was
+            // already due, so the setting is not available there.
+            self.notice = Some(
+                "Live preview needs a GPU. On this machine the final transcript is the only pass."
+                    .to_owned(),
+            );
+            cx.notify();
+            return;
+        }
         self.settings.live_preview = enabled;
         self.motion
             .set_hover("toggle-state:preview", if enabled { 1.0 } else { 0.0 });
@@ -799,10 +811,24 @@ impl DraftApp {
             // Drop any partial already on screen; a preview still in flight is
             // ignored when it arrives.
             self.partial = None;
-            self.notice = Some("Live preview off. Dictation uses one final GPU pass.".to_owned());
+            self.notice = Some(
+                if cpu {
+                    "Live preview off. Dictation uses one final CPU pass."
+                } else {
+                    "Live preview off. Dictation uses one final GPU pass."
+                }
+                .to_owned(),
+            );
         }
         self.save_settings();
         cx.notify();
+    }
+
+    /// Whether the engine resolved to the CPU backend.
+    fn backend_is_cpu(&self) -> bool {
+        self.backend
+            .as_deref()
+            .is_some_and(|backend| backend.eq_ignore_ascii_case("cpu"))
     }
 
     fn set_launch_at_startup(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -899,6 +925,12 @@ impl DraftApp {
         if !self.settings.live_preview || self.phase != Phase::Listening || self.preview_pending {
             return;
         }
+        // A preview is a whole extra encode. On the CPU backend that is several
+        // seconds of work competing with the final pass, so the cheap HUD meter
+        // is the honest preview there.
+        if self.backend_is_cpu() {
+            return;
+        }
         if self.preview_at.elapsed() < self.preview_delay {
             return;
         }
@@ -948,6 +980,15 @@ impl DraftApp {
                 self.device = Some(device);
                 self.load_ms = Some(load_ms);
                 self.engine_ready = true;
+                // A saved preference from a GPU machine cannot work here. Turn it
+                // off and say so instead of leaving a switch on that does nothing.
+                if self.settings.live_preview && self.backend_is_cpu() {
+                    self.settings.live_preview = false;
+                    self.motion.set_hover("toggle-state:preview", 0.0);
+                    self.save_settings();
+                    self.notice =
+                        Some("Live preview needs a GPU, so it is off on this machine.".to_owned());
+                }
                 if self.hotkey_error.is_none() {
                     self.error = None;
                 }

@@ -98,6 +98,49 @@ What the numbers mean:
   path, then the CTranslate2 fallback. Do not hide an accuracy regression behind
   a speed table.
 
+## CPU fallback (no Vulkan device)
+
+Machines without a usable GPU run the same F16 model on the CPU backend. The
+numbers below are the release profile, CPU only, on the reference machine
+(i7-13620H, 10 cores / 16 threads), one warm-up plus three measured runs per
+clip. The raw report is
+[`../bench/results/cpu-f16-release.json`](../bench/results/cpu-f16-release.json).
+
+| Clip | p50 | p95 | Real time factor |
+| --- | --- | --- | --- |
+| 3 s | 9,817 ms | 10,685 ms | 0.31x |
+| 5 s | 9,534 ms | 9,881 ms | 0.52x |
+| 15 s | 10,019 ms | 10,046 ms | 1.50x |
+| 30 s | 10,936 ms | 11,074 ms | 2.74x |
+| 60 s | 31,043 ms | 31,109 ms | 1.93x |
+| JFK, 11 s | 9,581 ms | 9,641 ms | 1.15x |
+
+The encoder always processes one 30-second window, so every clip shorter than
+30 s carries the same fixed cost. That is why a 3-second clip is not faster
+than a 5-second one, and why CPU dictation should be described as "a few
+seconds", never as instant.
+
+**Thread policy.** ggml defaults to every usable logical CPU. That
+oversubscribes the machine: the decoder's short ops serialize, and the UI,
+audio callback, and paste path lose their headroom. Draft asks for three
+quarters of the logical CPUs instead (`70-75%`), which measured 26-40% faster
+than the library default on the reference machine (15 s clip: 12.0-15.5 s at
+16 threads, 8.8-9.8 s at 12). `DRAFT_THREADS` overrides the count and
+`draftctl --threads N` exposes it for benchmarks.
+
+**Startup.** The warm-up pass exists to compile GPU pipelines. On the CPU
+backend it is a full silent encode (about 9 s here) with nothing to compile, so
+the app skips it and reports ready as soon as the model is mapped. Model load
+was 3.6 s on the reference machine.
+
+The CPU fallback does not change the model, the precision, the decode
+settings, or the text. It is slower by nature, not less accurate.
+
+On memory: the GPU path keeps the weights in VRAM, so the contract's 300 MB
+working set still holds. The CPU path keeps the same 1.6 GB F16 file resident,
+so a machine with 4 GB of RAM is tight even though it runs. Q8_0 (886 MB) is
+the catalog alternative for that case. It is not selected silently.
+
 ## Contract
 
 | Stage | Budget | Notes |
@@ -109,7 +152,7 @@ What the numbers mean:
 | Keyup -> paste complete | final + <= 80 ms p95 | End-to-end number users feel |
 | App launch -> dictation ready | <= 3 s warm cache | Model is memory-mapped, not copied |
 | Idle CPU | <= 0.5% | No polling loops in the hot path |
-| Working set | <= 300 MB | Model weights live in VRAM/page cache |
+| Working set | <= 300 MB | GPU backends; weights live in VRAM. The CPU backend keeps the F16 weights resident (about 1.6 GB) plus activations |
 | VRAM | <= 6.5 GB | Leaves headroom on an 8 GB laptop GPU |
 | Audio integrity | zero drops | 60 s capture with UI, paste, and a model load busy |
 
