@@ -131,8 +131,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item targetelease\draft.exe dist\draft.exe -Force
-          .\scriptsuild-installer.ps1
-          .\scriptsuild-installer.ps1 -IncludeModel -ModelPath model\whisper-large-v3-turbo-F16.gguf
+          .\scripts\build-installer.ps1
+          .\scripts\build-installer.ps1 -IncludeModel -ModelPath model\whisper-large-v3-turbo-F16.gguf
 
       # Code signing is optional and only runs once SignPath is set up (see
       # docs/CODE_SIGNING.md): add the repository variables SIGNPATH_ORGANIZATION_ID,
