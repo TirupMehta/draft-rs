@@ -289,5 +289,5 @@ threads in use), release build, a 5 s clip, warm file cache:
 Weaker CPUs are slower by roughly the ratio of their single-thread speed, which
 is why only machines with 8 or more threads and 8 GB RAM get `small` on the CPU;
 everything else gets `base`. Integrated and small discrete GPUs get `small`;
-GPUs with 2 GB or more of VRAM get large-v3-turbo Q8_0; 5 GB or more gets F16.
+Discrete GPUs: 2-3 GB VRAM gets large-v3-turbo Q5_K_M, 3-5 GB gets Q8_0, 5 GB or more gets F16.
 The integrated-GPU and Q8_0 tiers are not yet measured on real hardware.

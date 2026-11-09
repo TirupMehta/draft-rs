@@ -140,8 +140,13 @@ pub fn recommend(capability: &Capability) -> &'static ModelSpec {
     if capability.discrete_gpu && capability.vram_bytes >= 5 * GIB {
         return &WHISPER_LARGE_V3_TURBO_F16;
     }
-    if capability.discrete_gpu && capability.vram_bytes >= 2 * GIB {
+    if capability.discrete_gpu && capability.vram_bytes >= 3 * GIB {
         return &WHISPER_LARGE_V3_TURBO_Q8_0;
+    }
+    // 2-3 GB cards: the 5-bit large model (620 MB) leaves room for the
+    // graphics driver and whatever else is using the card.
+    if capability.discrete_gpu && capability.vram_bytes >= 2 * GIB {
+        return &WHISPER_LARGE_V3_TURBO_Q5_K_M;
     }
     // Integrated graphics and small discrete cards are unmeasured territory and
     // vendor drivers vary, so they get the middle model, not the large one.
@@ -547,6 +552,19 @@ mod tests {
             ..base
         };
         assert_eq!(recommend(&gaming).id, WHISPER_LARGE_V3_TURBO_F16.id);
+        let mid_gpu = Capability {
+            discrete_gpu: true,
+            vram_bytes: 4 * GIB,
+            ram_bytes: 16 * GIB,
+            cpu_threads: 8,
+            ..base
+        };
+        assert_eq!(recommend(&mid_gpu).id, WHISPER_LARGE_V3_TURBO_Q8_0.id);
+        let low_gpu = Capability {
+            vram_bytes: 2 * GIB,
+            ..mid_gpu
+        };
+        assert_eq!(recommend(&low_gpu).id, WHISPER_LARGE_V3_TURBO_Q5_K_M.id);
         let thin = Capability {
             integrated_gpu: true,
             ram_bytes: 16 * GIB,
