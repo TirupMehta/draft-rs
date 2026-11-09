@@ -130,7 +130,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item targetelease\draft.exe dist\draft.exe -Force
+          Copy-Item target\release\draft.exe dist\draft.exe -Force
           .\scripts\build-installer.ps1
           .\scripts\build-installer.ps1 -IncludeModel -ModelPath model\whisper-large-v3-turbo-F16.gguf
 
