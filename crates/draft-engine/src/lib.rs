@@ -24,6 +24,91 @@ pub enum Error {
     Native(#[from] transcribe_cpp::Error),
 }
 
+/// What this PC offers for speech recognition, measured at runtime.
+#[derive(Debug, Clone, Default)]
+pub struct Hardware {
+    pub gpu_name: Option<String>,
+    pub discrete_gpu: bool,
+    pub integrated_gpu: bool,
+    pub vram_bytes: u64,
+    pub ram_bytes: u64,
+    pub cpu_threads: usize,
+}
+
+/// Probe the registered compute devices and the system memory. Cheap (no model
+/// is loaded) and safe to call before the first load.
+pub fn detect_hardware() -> Hardware {
+    use transcribe_cpp::DeviceType;
+    let _ = transcribe_cpp::init_backends_default();
+    let mut hardware = Hardware {
+        cpu_threads: std::thread::available_parallelism().map_or(2, |n| n.get()),
+        ram_bytes: system_ram_bytes(),
+        ..Hardware::default()
+    };
+    for device in transcribe_cpp::devices() {
+        let is_gpu = matches!(device.device_type, DeviceType::Gpu | DeviceType::Igpu);
+        if !is_gpu {
+            continue;
+        }
+        let discrete = device.device_type == DeviceType::Gpu;
+        let better = discrete && !hardware.discrete_gpu
+            || discrete == hardware.discrete_gpu && device.memory_total > hardware.vram_bytes;
+        if better || hardware.gpu_name.is_none() {
+            hardware.gpu_name = Some(device.description.clone());
+            hardware.vram_bytes = device.memory_total;
+        }
+        if discrete {
+            hardware.discrete_gpu = true;
+        } else {
+            hardware.integrated_gpu = true;
+        }
+    }
+    info!(?hardware, "hardware detected");
+    hardware
+}
+
+#[cfg(windows)]
+fn system_ram_bytes() -> u64 {
+    #[repr(C)]
+    struct MemoryStatusEx {
+        length: u32,
+        load: u32,
+        total_phys: u64,
+        avail_phys: u64,
+        total_page: u64,
+        avail_page: u64,
+        total_virtual: u64,
+        avail_virtual: u64,
+        avail_extended: u64,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GlobalMemoryStatusEx(buffer: *mut MemoryStatusEx) -> i32;
+    }
+    let mut status = MemoryStatusEx {
+        length: std::mem::size_of::<MemoryStatusEx>() as u32,
+        load: 0,
+        total_phys: 0,
+        avail_phys: 0,
+        total_page: 0,
+        avail_page: 0,
+        total_virtual: 0,
+        avail_virtual: 0,
+        avail_extended: 0,
+    };
+    // SAFETY: `status` is a correctly sized, initialised MEMORYSTATUSEX.
+    if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 {
+        status.total_phys
+    } else {
+        0
+    }
+}
+
+#[cfg(not(windows))]
+fn system_ram_bytes() -> u64 {
+    0
+}
+
 /// Which compute backend to request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ComputeBackend {

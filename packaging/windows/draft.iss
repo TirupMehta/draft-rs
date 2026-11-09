@@ -9,13 +9,19 @@
 ; history, logs, and the model) so reinstalling does not destroy local data.
 
 #ifndef AppVersion
-  #define AppVersion "0.3.1"
+  #define AppVersion "0.4.0"
 #endif
 #ifndef SourceExe
   #define SourceExe "..\..\dist\draft.exe"
 #endif
 #ifndef RepoRoot
   #define RepoRoot "..\.."
+#endif
+
+#ifdef IncludeModel
+  #define OutSuffix "-offline"
+#else
+  #define OutSuffix ""
 #endif
 
 [Setup]
@@ -32,7 +38,7 @@ DefaultGroupName=Draft
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir={#RepoRoot}\dist
-OutputBaseFilename=Draft-Setup-{#AppVersion}
+OutputBaseFilename=Draft-Setup-{#AppVersion}{#OutSuffix}
 SetupIconFile={#RepoRoot}\assets\draft.ico
 UninstallDisplayIcon={app}\draft.exe
 UninstallDisplayName=Draft

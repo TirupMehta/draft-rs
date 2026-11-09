@@ -66,11 +66,95 @@ pub const WHISPER_LARGE_V3_TURBO_Q8_0: ModelSpec = ModelSpec {
     sha256: "257aa7ec9121c22c167d5e2c49e3e76b4ba0e6e27ebc13074eba0a80f8190220",
 };
 
-/// The artifact a fresh install expects.
+/// The large model at 5-bit (K-quant): a third of the F16 size, for integrated
+/// graphics and PCs with limited memory.
+pub const WHISPER_LARGE_V3_TURBO_Q5_K_M: ModelSpec = ModelSpec {
+    id: "whisper-large-v3-turbo-q5_k_m",
+    name: "Whisper Large v3 Turbo",
+    quantization: "Q5_K_M",
+    file_name: "whisper-large-v3-turbo-Q5_K_M.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-Q5_K_M.gguf",
+    size: 619_628_096,
+    sha256: "06fc9923c09fb3ae878ea12c34d1be3ed18fad039ab14b4b045c7b6c40af56b2",
+};
+
+/// Whisper small: the quality/speed sweet spot for PCs without a usable GPU.
+pub const WHISPER_SMALL_Q8_0: ModelSpec = ModelSpec {
+    id: "whisper-small-q8_0",
+    name: "Whisper Small",
+    quantization: "Q8_0",
+    file_name: "whisper-small-Q8_0.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-small-gguf/resolve/main/whisper-small-Q8_0.gguf",
+    size: 269_751_136,
+    sha256: "9b9c8811bbcc82a7766f0fb0925614bdacb0923b2cc630daeac17108b655b860",
+};
+
+/// Whisper base: the lightest option, for old or very small machines.
+pub const WHISPER_BASE_Q8_0: ModelSpec = ModelSpec {
+    id: "whisper-base-q8_0",
+    name: "Whisper Base",
+    quantization: "Q8_0",
+    file_name: "whisper-base-Q8_0.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-base-gguf/resolve/main/whisper-base-Q8_0.gguf",
+    size: 84_962_880,
+    sha256: "81c069428bc8a24551a8169cf31cf09bcfd9d4cf50389ae281323c9aa9648c81",
+};
+
+/// The artifact a fresh install expects when nothing else is chosen.
 pub const DEFAULT_MODEL: ModelSpec = WHISPER_LARGE_V3_TURBO_F16;
 
-/// Everything a fresh install can fetch.
-pub const CATALOG: &[ModelSpec] = &[WHISPER_LARGE_V3_TURBO_F16, WHISPER_LARGE_V3_TURBO_Q8_0];
+/// Everything a fresh install can fetch, best quality first.
+pub const CATALOG: &[ModelSpec] = &[
+    WHISPER_LARGE_V3_TURBO_F16,
+    WHISPER_LARGE_V3_TURBO_Q8_0,
+    WHISPER_LARGE_V3_TURBO_Q5_K_M,
+    WHISPER_SMALL_Q8_0,
+    WHISPER_BASE_Q8_0,
+];
+
+/// What the machine can do, as far as model choice is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Capability {
+    /// A discrete GPU is present (dedicated memory, not shared with the CPU).
+    pub discrete_gpu: bool,
+    /// An integrated GPU is present.
+    pub integrated_gpu: bool,
+    /// Dedicated memory of the best GPU, in bytes (0 if unknown).
+    pub vram_bytes: u64,
+    /// Installed RAM in bytes (0 if unknown).
+    pub ram_bytes: u64,
+    /// Logical CPU threads.
+    pub cpu_threads: usize,
+}
+
+const GIB: u64 = 1 << 30;
+
+/// Pick the best model the machine can run comfortably.
+///
+/// The rule is conservative on purpose: a first impression of "fast and
+/// accurate enough" beats "most accurate and slow". Unknown values count as
+/// small, so a machine that cannot be measured gets the safer choice. The
+/// user can still pick any other model in Settings.
+pub fn recommend(capability: &Capability) -> &'static ModelSpec {
+    let ram = capability.ram_bytes;
+    if capability.discrete_gpu && capability.vram_bytes >= 5 * GIB {
+        return &WHISPER_LARGE_V3_TURBO_F16;
+    }
+    if capability.discrete_gpu && capability.vram_bytes >= 2 * GIB {
+        return &WHISPER_LARGE_V3_TURBO_Q8_0;
+    }
+    // Integrated graphics and small discrete cards are unmeasured territory and
+    // vendor drivers vary, so they get the middle model, not the large one.
+    if (capability.integrated_gpu || capability.discrete_gpu) && ram >= 8 * GIB {
+        return &WHISPER_SMALL_Q8_0;
+    }
+    // CPU only: the small model needs a strong processor to feel instant
+    // (about 2 s for a 5 s clip on a 12-thread laptop); everything else gets base.
+    if capability.cpu_threads >= 8 && ram >= 8 * GIB {
+        return &WHISPER_SMALL_Q8_0;
+    }
+    &WHISPER_BASE_Q8_0
+}
 
 /// Look up a catalog entry by id.
 pub fn find(id: &str) -> Option<&'static ModelSpec> {
@@ -445,6 +529,42 @@ pub fn remove(spec: &ModelSpec, dir: &Path) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recommendation_matches_the_machine() {
+        let base = Capability {
+            discrete_gpu: false,
+            integrated_gpu: false,
+            vram_bytes: 0,
+            ram_bytes: 0,
+            cpu_threads: 2,
+        };
+        assert_eq!(recommend(&base).id, WHISPER_BASE_Q8_0.id);
+        let gaming = Capability {
+            discrete_gpu: true,
+            vram_bytes: 8 * GIB,
+            ram_bytes: 16 * GIB,
+            cpu_threads: 16,
+            ..base
+        };
+        assert_eq!(recommend(&gaming).id, WHISPER_LARGE_V3_TURBO_F16.id);
+        let thin = Capability {
+            integrated_gpu: true,
+            ram_bytes: 16 * GIB,
+            cpu_threads: 8,
+            ..base
+        };
+        assert_eq!(recommend(&thin).id, WHISPER_SMALL_Q8_0.id);
+        let cpu_only = Capability {
+            ram_bytes: 8 * GIB,
+            cpu_threads: 8,
+            ..base
+        };
+        assert_eq!(recommend(&cpu_only).id, WHISPER_SMALL_Q8_0.id);
+        for spec in CATALOG {
+            assert!(find(spec.id).is_some());
+        }
+    }
+
     use std::io::Cursor;
     use std::sync::Mutex;
 
@@ -504,7 +624,7 @@ mod tests {
             assert!(model.size > 0);
             assert!(model.file_name.ends_with(".gguf"));
             assert!(model.url.starts_with("https://"));
-            assert!(model.file_name.starts_with("whisper-large-v3-turbo"));
+            assert!(model.file_name.starts_with("whisper-"));
         }
         assert!(find(DEFAULT_MODEL.id).is_some());
     }

@@ -23,6 +23,18 @@ pub struct Settings {
     pub hotkey: String,
     /// An absolute path to a local GGUF model. `None` uses the app default.
     pub model: Option<PathBuf>,
+    /// The catalog id chosen for this PC (see `models::recommend`). `None`
+    /// means "decide at first launch from the hardware".
+    pub model_id: Option<String>,
+    /// Set once the first-run welcome has been completed or skipped.
+    pub onboarded: bool,
+    /// Run on the CPU even when a GPU exists. Draft sets this itself when the
+    /// GPU backend fails to start or to decode, so a bad driver never blocks
+    /// dictation; the user can turn it off again in Settings.
+    pub force_cpu: bool,
+    /// Names and jargon to spell correctly, comma or newline separated. Passed
+    /// to the recognizer as context; it never rewrites finished text.
+    pub vocabulary: String,
     /// The preferred input device name. `None` uses the system default.
     pub microphone: Option<String>,
     /// Whether a finished transcript is pasted at the cursor.
@@ -63,6 +75,10 @@ impl Default for Settings {
         Self {
             hotkey: "right-ctrl".to_owned(),
             model: None,
+            model_id: None,
+            onboarded: false,
+            force_cpu: false,
+            vocabulary: String::new(),
             microphone: None,
             paste: true,
             live_preview: false,
@@ -187,6 +203,10 @@ mod tests {
             voice_commands: false,
             lists: true,
             learn_rhythm: false,
+            model_id: Some("whisper-small-q8_0".to_owned()),
+            onboarded: true,
+            force_cpu: true,
+            vocabulary: "Tirup, Whisper".to_owned(),
         };
 
         settings.save(&path).unwrap();

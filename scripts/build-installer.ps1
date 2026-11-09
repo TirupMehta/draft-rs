@@ -61,5 +61,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }
 
-$installer = Join-Path $repo "dist\Draft-Setup-$Version.exe"
+$suffix = if ($IncludeModel) { "-offline" } else { "" }
+$installer = Join-Path $repo "dist\Draft-Setup-$Version$suffix.exe"
 Get-Item $installer | Select-Object FullName, Length, LastWriteTime

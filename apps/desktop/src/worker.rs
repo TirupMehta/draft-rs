@@ -33,6 +33,9 @@ pub struct FormatJob {
     pub commands: bool,
     pub lists: bool,
     pub learn_rhythm: bool,
+    /// Names and jargon to favour while recognizing. Context only; the
+    /// formatter never rewrites finished text.
+    pub vocabulary: String,
 }
 
 impl Default for FormatJob {
@@ -43,6 +46,7 @@ impl Default for FormatJob {
             commands: true,
             lists: false,
             learn_rhythm: true,
+            vocabulary: String::new(),
         }
     }
 }
@@ -55,6 +59,21 @@ pub enum Event {
         load_ms: u128,
     },
     Failed(String),
+    /// The model this launch will use, so the app can remember the choice.
+    Chosen {
+        id: Option<&'static str>,
+        label: String,
+        downloading: bool,
+    },
+    /// Real download progress for the first-run model.
+    Downloading {
+        downloaded: u64,
+        total: u64,
+    },
+    /// The GPU did not work; the engine is running on the CPU instead.
+    FellBack {
+        reason: String,
+    },
     Partial {
         text: String,
         serial: u64,
@@ -80,10 +99,16 @@ pub enum Event {
     },
 }
 
-pub fn spawn(
-    model: PathBuf,
-    backend: ComputeBackend,
-) -> (Sender<Job>, Receiver<Event>, Arc<AtomicUsize>) {
+/// Which model to run and how, decided before anything is loaded.
+pub struct StartPlan {
+    /// A path from `--model`, `DRAFT_MODEL_PATH`, or Settings. Used as is.
+    pub explicit_model: Option<PathBuf>,
+    /// The catalog id saved by an earlier launch.
+    pub model_id: Option<String>,
+    pub backend: ComputeBackend,
+}
+
+pub fn spawn(plan: StartPlan) -> (Sender<Job>, Receiver<Event>, Arc<AtomicUsize>) {
     let (job_sender, job_receiver) = channel();
     let (event_sender, event_receiver) = channel();
     let pending_finals = Arc::new(AtomicUsize::new(0));
@@ -91,10 +116,100 @@ pub fn spawn(
 
     std::thread::Builder::new()
         .name("draft-engine".to_owned())
-        .spawn(move || run(model, backend, job_receiver, event_sender, finals))
+        .spawn(move || run(plan, job_receiver, event_sender, finals))
         .expect("spawn the Draft engine thread");
 
     (job_sender, event_receiver, pending_finals)
+}
+
+/// Decide the model and make sure it is on disk, downloading it if needed.
+/// Returns `None` after reporting a failure.
+fn prepare_model(plan: &StartPlan, events: &Sender<Event>) -> Option<PathBuf> {
+    use draft_core::models::{self, ModelState};
+
+    if let Some(path) = &plan.explicit_model {
+        if path.exists() {
+            let _ = events.send(Event::Chosen {
+                id: None,
+                label: path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                downloading: false,
+            });
+            return Some(path.clone());
+        }
+        let _ = events.send(Event::Failed(format!(
+            "The model file {} is missing. Choose another model in Settings.",
+            path.display()
+        )));
+        return None;
+    }
+
+    let dir = draft_core::paths::models_dir();
+    let installed = |spec: &models::ModelSpec| {
+        matches!(models::state(spec, &dir), Ok(ModelState::Installed { .. }))
+    };
+
+    let spec: &'static models::ModelSpec = match plan.model_id.as_deref().and_then(models::find) {
+        Some(spec) => spec,
+        None => {
+            // A PC that already has a model keeps it; a fresh one is measured.
+            if let Some(spec) = models::CATALOG.iter().find(|spec| installed(spec)) {
+                spec
+            } else {
+                let hardware = draft_engine::detect_hardware();
+                models::recommend(&models::Capability {
+                    discrete_gpu: hardware.discrete_gpu,
+                    integrated_gpu: hardware.integrated_gpu,
+                    vram_bytes: hardware.vram_bytes,
+                    ram_bytes: hardware.ram_bytes,
+                    cpu_threads: hardware.cpu_threads,
+                })
+            }
+        }
+    };
+
+    let present = installed(spec);
+    let _ = events.send(Event::Chosen {
+        id: Some(spec.id),
+        label: format!("{} {}", spec.name, spec.quantization),
+        downloading: !present,
+    });
+    if present {
+        return Some(spec.path_in(&dir));
+    }
+
+    let source = models::HttpSource::new(spec);
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let mut last_error = String::new();
+    for attempt in 1..=4u64 {
+        let mut last_sent = Instant::now() - Duration::from_secs(1);
+        let result = models::install(spec, &dir, &source, &cancel, |progress| {
+            if last_sent.elapsed() >= Duration::from_millis(200)
+                || progress.downloaded >= progress.total
+            {
+                last_sent = Instant::now();
+                let _ = events.send(Event::Downloading {
+                    downloaded: progress.downloaded,
+                    total: progress.total,
+                });
+            }
+        });
+        match result {
+            Ok(path) => return Some(path),
+            Err(error) => {
+                last_error = format!("{error:#}");
+                tracing::warn!(attempt, error = %last_error, "model download failed");
+                std::thread::sleep(Duration::from_secs(2 * attempt));
+            }
+        }
+    }
+    let _ = events.send(Event::Failed(format!(
+        "Draft could not download its speech model ({last_error}). \
+         Check your internet connection and reopen Draft; the download resumes where it stopped."
+    )));
+    None
 }
 
 /// Retire one final job without ever wrapping the counter below zero. A
@@ -110,22 +225,33 @@ fn finish_final(pending: &AtomicUsize) {
 }
 
 fn run(
-    model: PathBuf,
-    backend: ComputeBackend,
+    plan: StartPlan,
     jobs: Receiver<Job>,
     events: Sender<Event>,
     pending_finals: Arc<AtomicUsize>,
 ) {
-    if !model.exists() {
-        let _ = events.send(Event::Failed(format!(
-            "Model not found at {}. Download it with `draftctl model install`, or pass --model.",
-            model.display()
-        )));
+    let Some(model) = prepare_model(&plan, &events) else {
         return;
-    }
+    };
+    let backend = plan.backend;
 
     let mut engine = match Engine::load(&EngineConfig::new(&model).backend(backend)) {
         Ok(engine) => engine,
+        Err(error) if backend != ComputeBackend::Cpu => {
+            tracing::warn!(%error, "GPU load failed; retrying on the CPU");
+            let _ = events.send(Event::FellBack {
+                reason: format!("{error:#}"),
+            });
+            match Engine::load(&EngineConfig::new(&model).backend(ComputeBackend::Cpu)) {
+                Ok(engine) => engine,
+                Err(error) => {
+                    let _ = events.send(Event::Failed(format!(
+                        "Could not load the model: {error:#}"
+                    )));
+                    return;
+                }
+            }
+        }
         Err(error) => {
             let _ = events.send(Event::Failed(format!(
                 "Could not load the model: {error:#}"
@@ -134,8 +260,8 @@ fn run(
         }
     };
 
-    let backend_name = engine.backend().to_owned();
-    let device = engine.device().to_owned();
+    let mut backend_name = engine.backend().to_owned();
+    let mut device = engine.device().to_owned();
     let load_ms = engine.load_time().as_millis();
     // The warm-up exists to compile GPU pipelines. On the CPU backend it is a
     // full silent encode that only delays the first dictation, so skip it and
@@ -146,11 +272,22 @@ fn run(
     } else {
         let warmed = Instant::now();
         if let Err(error) = engine.warm_up() {
-            let _ = events.send(Event::Failed(format!(
-                "Could not warm the model: {error:#}"
-            )));
-            return;
+            tracing::warn!(%error, "GPU warm-up failed; retrying on the CPU");
+            let _ = events.send(Event::FellBack {
+                reason: format!("{error:#}"),
+            });
+            match Engine::load(&EngineConfig::new(&model).backend(ComputeBackend::Cpu)) {
+                Ok(cpu) => engine = cpu,
+                Err(error) => {
+                    let _ = events.send(Event::Failed(format!(
+                        "Could not load the model: {error:#}"
+                    )));
+                    return;
+                }
+            }
         }
+        backend_name = engine.backend().to_owned();
+        device = engine.device().to_owned();
         warmed.elapsed().as_millis()
     };
     tracing::info!(
@@ -224,7 +361,26 @@ fn run(
         }
 
         let started = Instant::now();
-        let result = engine.transcribe(&job.samples, &TranscriptionOptions::default());
+        if is_silence(&job.samples) {
+            // Whisper invents "Thank you." on silence. Do not ask it.
+            finish_final(&pending_finals);
+            let _ = events.send(Event::Empty {
+                elapsed: started.elapsed(),
+            });
+            continue;
+        }
+        let vocabulary = job.format.vocabulary.trim();
+        let result = engine.transcribe(
+            &job.samples,
+            &TranscriptionOptions {
+                vocabulary: vocabulary
+                    .split([',', '\n'])
+                    .map(|word| word.trim().to_owned())
+                    .filter(|word| !word.is_empty())
+                    .collect(),
+                ..TranscriptionOptions::default()
+            },
+        );
         finish_final(&pending_finals);
         match result {
             Ok(result) => {
@@ -319,4 +475,15 @@ fn format_final(
         "formatted the final transcript"
     );
     formatted.text
+}
+
+/// True when a clip has no speech-level signal at all: a key tapped in a quiet
+/// room, a muted microphone. The threshold is far below any real voice, so it
+/// never drops quiet speech, only a flat line.
+fn is_silence(samples: &[f32]) -> bool {
+    if samples.is_empty() {
+        return true;
+    }
+    let peak = samples.iter().fold(0.0_f32, |acc, s| acc.max(s.abs()));
+    peak < 0.004
 }

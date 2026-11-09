@@ -36,8 +36,8 @@ at `C:\all\Draft`.
    not show it.
 4. **Privacy copy must be accurate.** Say what is true: audio is captured only
    while the key is held, transcribed locally, and discarded. The one exception
-   is the model file, which is installed once (bundled with the release
-   installer, or downloaded from the pinned source when building without it) and
+   is the model file, which is downloaded once on first launch from the pinned
+   Hugging Face source (the `-offline` installer bundles it instead) and
    checksum-verified. Do not claim "no network activity" without naming that
    exception.
 5. **Power and speed are product features.** Idle must cost nothing. See
@@ -458,3 +458,26 @@ screenshot than in a diff.
   claim macOS support until the document's stage 8 is done and a person has
   dictated on a signed build.
 * Linux remains a stub.
+
+---
+
+## 12. v0.4 launch changes (model tiers, small installer)
+
+* **Model tiers.** `models::CATALOG` has five pinned models (turbo F16, Q8_0,
+  Q5_K_M, small Q8_0, base Q8_0). `models::recommend(Capability)` picks one from
+  `draft_engine::detect_hardware()` (GPU type/VRAM, RAM, CPU threads). The
+  worker (`worker.rs::prepare_model`) decides at launch, downloads with real
+  progress and 4 resumable attempts, and reports `Event::Chosen`; the app saves
+  `settings.model_id`. Existing installs with any catalog model on disk keep it.
+* **Small installer.** `build-installer.ps1` builds `Draft-Setup-<v>.exe`
+  without the model; `-IncludeModel` builds `Draft-Setup-<v>-offline.exe`.
+* **GPU safety.** A failed GPU load or warm-up falls back to CPU, emits
+  `Event::FellBack`, and persists `settings.force_cpu`.
+* **AVX2 guard.** `main.rs::require_avx2` shows a message box instead of a
+  `0xc000001d` crash on older CPUs.
+* **Silence guard.** `worker.rs::is_silence` skips decoding flat-line clips so
+  the model cannot invent "Thank you.".
+* **Vocabulary** (`settings.vocabulary`, comma/newline separated) is passed as
+  recognizer context; there is no Settings UI for it yet.
+* Build on this machine with `C:ll\draftuild.bat <cargo args>` (sets up the
+  Visual Studio environment; Git Bash's `link` otherwise shadows `link.exe`).

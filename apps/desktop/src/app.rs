@@ -291,13 +291,17 @@ pub struct DraftApp {
     palette: theme::Palette,
     /// Every control that eases instead of snapping.
     motion: Motion,
+    /// Real model-download progress (bytes done, bytes total), if one runs.
+    download: Option<(u64, u64)>,
+    /// The model this launch chose, as a person would read it.
+    model_label: Option<String>,
 }
 
 impl DraftApp {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         _cx: &mut Context<Self>,
-        model: PathBuf,
+        explicit_model: Option<PathBuf>,
         backend: ComputeBackend,
         paste: bool,
         hotkey: HotkeyConfig,
@@ -330,8 +334,19 @@ impl DraftApp {
             }
         }
 
-        let model_display = model.clone();
-        let (jobs, worker_events, final_pending) = worker::spawn(model, backend);
+        let model_display = explicit_model
+            .clone()
+            .unwrap_or_else(draft_core::paths::default_model_path);
+        let backend = if settings.force_cpu {
+            ComputeBackend::Cpu
+        } else {
+            backend
+        };
+        let (jobs, worker_events, final_pending) = worker::spawn(worker::StartPlan {
+            explicit_model,
+            model_id: settings.model_id.clone(),
+            backend,
+        });
         let (clipboard_sender, clipboard_notices) = channel();
         let hotkey_label = hotkey.name().to_owned();
         let tray = match tray::build(&hotkey_label) {
@@ -457,6 +472,8 @@ impl DraftApp {
             error: initial_error,
             notice,
             model: model_display,
+            download: None,
+            model_label: None,
             settings,
             settings_path,
             paste_enabled: paste,
@@ -976,6 +993,7 @@ impl DraftApp {
                 device,
                 load_ms,
             } => {
+                self.download = None;
                 self.backend = Some(backend);
                 self.device = Some(device);
                 self.load_ms = Some(load_ms);
@@ -994,7 +1012,42 @@ impl DraftApp {
                 }
                 self.refresh_phase();
             }
+            worker::Event::Chosen {
+                id,
+                label,
+                downloading,
+            } => {
+                if let Some(id) = id {
+                    if let Some(spec) = draft_core::models::find(id) {
+                        self.model = spec.path_in(&draft_core::paths::models_dir());
+                    }
+                    if self.settings.model_id.as_deref() != Some(id) {
+                        self.settings.model_id = Some(id.to_owned());
+                        self.save_settings();
+                    }
+                }
+                self.model_label = Some(label);
+                if downloading {
+                    self.download = Some((0, 1));
+                }
+            }
+            worker::Event::Downloading { downloaded, total } => {
+                self.download = Some((downloaded, total.max(1)));
+            }
+            worker::Event::FellBack { reason } => {
+                tracing::warn!(%reason, "running on the CPU");
+                self.download = None;
+                if !self.settings.force_cpu {
+                    self.settings.force_cpu = true;
+                    self.save_settings();
+                }
+                self.notice = Some(
+                    "Your graphics driver did not work with Draft, so it is using the processor instead. Dictation still works; it may be a little slower."
+                        .to_owned(),
+                );
+            }
             worker::Event::Failed(error) => {
+                self.download = None;
                 self.engine_ready = false;
                 self.phase = Phase::Error;
                 self.error = Some(error);
@@ -1035,6 +1088,10 @@ impl DraftApp {
             } => {
                 self.pending_jobs = self.pending_jobs.saturating_sub(1);
                 self.rhythm = rhythm;
+                if !self.settings.onboarded {
+                    self.settings.onboarded = true;
+                    self.save_settings();
+                }
                 tracing::info!(
                     audio_s,
                     engine_ms = elapsed.as_millis(),
@@ -1155,6 +1212,7 @@ impl DraftApp {
                         commands: self.settings.voice_commands,
                         lists: self.settings.lists,
                         learn_rhythm: self.settings.learn_rhythm,
+                        vocabulary: self.settings.vocabulary.clone(),
                     },
                 };
                 // Announce the final before it enters the queue so the worker
@@ -1375,6 +1433,50 @@ impl DraftApp {
         cx.notify();
     }
 
+    /// Everything a bug report needs, and nothing personal: versions, the
+    /// backend and device, the model, and the last log lines. No transcripts.
+    fn copy_diagnostics(&mut self, cx: &mut Context<Self>) {
+        let mut report = format!(
+            "Draft v{}\nBackend: {}\nDevice: {}\nModel: {}\nForce CPU: {}\nLoad: {} ms\n",
+            env!("CARGO_PKG_VERSION"),
+            self.backend.as_deref().unwrap_or("not loaded"),
+            self.device.as_deref().unwrap_or("unknown"),
+            self.model.display(),
+            self.settings.force_cpu,
+            self.load_ms.unwrap_or(0),
+        );
+        let hardware = draft_engine::detect_hardware();
+        report.push_str(&format!(
+            "GPU: {:?} (discrete: {}, VRAM {} MB)\nRAM: {} MB\nCPU threads: {}\n",
+            hardware.gpu_name,
+            hardware.discrete_gpu,
+            hardware.vram_bytes / 1_000_000,
+            hardware.ram_bytes / 1_000_000,
+            hardware.cpu_threads
+        ));
+        if let Ok(entries) = std::fs::read_dir(draft_core::paths::data_dir().join("logs")) {
+            let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+            files.sort();
+            if let Some(text) = files.last().and_then(|path| std::fs::read_to_string(path).ok()) {
+                let tail: Vec<&str> = text.lines().rev().take(80).collect();
+                report.push_str("\n--- last log lines ---\n");
+                for line in tail.into_iter().rev() {
+                    report.push_str(line);
+                    report.push('\n');
+                }
+            }
+        }
+        let sender = self.clipboard_sender.clone();
+        std::thread::spawn(move || {
+            let message = match draft_paste::copy_text(&report) {
+                Ok(()) => "Diagnostics copied. Paste them into your bug report.".to_owned(),
+                Err(error) => format!("Could not copy: {error:#}"),
+            };
+            let _ = sender.send(message);
+        });
+        cx.notify();
+    }
+
     fn copy_last(&mut self, cx: &mut Context<Self>) {
         let Some(last) = self.last.as_ref() else {
             self.notice = Some("No completed dictation yet.".to_owned());
@@ -1518,16 +1620,65 @@ impl DraftApp {
         let mut parts: Vec<AnyElement> = Vec::new();
         match self.phase {
             Phase::Loading => {
-                parts.push(headline("Warming the model", palette.text).into_any_element());
-                parts.push(
-                    secondary(palette, "Loading once. It stays ready on this device.")
+                if let Some((done, total)) = self.download {
+                    let fraction = (done as f32 / total as f32).clamp(0.0, 1.0);
+                    parts.push(headline("Getting Draft ready", palette.text).into_any_element());
+                    let label = self.model_label.clone().unwrap_or_default();
+                    parts.push(
+                        secondary(
+                            palette,
+                            &format!(
+                                "One-time download of the speech model for this PC ({label}).                                  After this, Draft works offline."
+                            ),
+                        )
                         .into_any_element(),
-                );
+                    );
+                    parts.push(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(theme::space::SM))
+                            .child(
+                                div()
+                                    .w(px(300.0))
+                                    .h(px(6.0))
+                                    .rounded_full()
+                                    .bg(palette.track)
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .w(px(300.0 * fraction))
+                                            .rounded_full()
+                                            .bg(palette.accent),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(theme::type_size::META))
+                                    .line_height(px(theme::line::META))
+                                    .text_color(palette.tertiary)
+                                    .child(format!(
+                                        "{} of {} MB",
+                                        done / 1_000_000,
+                                        total / 1_000_000
+                                    )),
+                            )
+                            .into_any_element(),
+                    );
+                } else {
+                    parts.push(headline("Warming the model", palette.text).into_any_element());
+                    parts.push(
+                        secondary(palette, "Loading once. It stays ready on this device.")
+                            .into_any_element(),
+                    );
+                }
             }
             Phase::Ready => {
                 parts.push(headline("Speak naturally.", palette.text).into_any_element());
                 parts.push(keycap(palette, &self.hotkey_label).into_any_element());
-                let support = if self.paste_enabled {
+                let support = if !self.settings.onboarded {
+                    "Try it now: click in any app, hold the key, say a sentence, and let go."
+                } else if self.paste_enabled {
                     "Release and the words appear at your cursor."
                 } else {
                     "Release and the transcript stays here."
@@ -2790,6 +2941,44 @@ impl DraftApp {
         ]
     }
 
+    /// Switch to another catalog model. The engine thread is replaced: the old
+    /// one stops when its job channel closes, and the new one downloads the
+    /// model first if it is not on disk yet.
+    fn switch_model(&mut self, id: &'static str, cx: &mut Context<Self>) {
+        if self.recorder.is_some() {
+            self.notice = Some("Finish the current dictation before changing the model.".to_owned());
+            cx.notify();
+            return;
+        }
+        let Some(spec) = draft_core::models::find(id) else {
+            return;
+        };
+        self.settings.model = None;
+        self.settings.model_id = Some(id.to_owned());
+        self.save_settings();
+        self.model = spec.path_in(&draft_core::paths::models_dir());
+        let backend = if self.settings.force_cpu {
+            ComputeBackend::Cpu
+        } else {
+            ComputeBackend::Auto
+        };
+        let (jobs, worker_events, final_pending) = worker::spawn(worker::StartPlan {
+            explicit_model: None,
+            model_id: Some(id.to_owned()),
+            backend,
+        });
+        self.jobs = jobs;
+        self.worker_events = worker_events;
+        self.final_pending = final_pending;
+        self.engine_ready = false;
+        self.backend = None;
+        self.device = None;
+        self.download = None;
+        self.error = None;
+        self.phase = Phase::Loading;
+        cx.notify();
+    }
+
     fn recognition_rows(
         &mut self,
         palette: &theme::Palette,
@@ -2817,8 +3006,39 @@ impl DraftApp {
             "Preparing".to_owned()
         };
         let path = self.model.display().to_string();
+        let current_id = self.settings.model_id.clone();
+        let mut choices = Vec::new();
+        for (index, spec) in draft_core::models::CATALOG.iter().enumerate() {
+            let key: &'static str = [
+                "chip:model:0",
+                "chip:model:1",
+                "chip:model:2",
+                "chip:model:3",
+                "chip:model:4",
+            ][index.min(4)];
+            let selected = self.settings.model.is_none() && current_id.as_deref() == Some(spec.id);
+            let label = format!(
+                "{} {} · {}",
+                spec.name.replace("Whisper ", ""),
+                spec.quantization,
+                model_size_label(spec.size)
+            );
+            let id = spec.id;
+            choices.push(
+                self.chip(&app, palette, key, label, selected)
+                    .on_click(cx.listener(move |this, _, _, cx| this.switch_model(id, cx)))
+                    .into_any_element(),
+            );
+        }
 
         vec![
+            setting_block(
+                palette,
+                "Speed and accuracy",
+                "Draft picked the model that suits this PC. A larger model is more accurate but needs a stronger graphics card; a smaller one is faster on older PCs. A model downloads once the first time you choose it.",
+                div().flex().flex_wrap().gap(px(theme::space::SM)).children(choices),
+            )
+            .into_any_element(),
             setting_row(
                 palette,
                 "Model",
@@ -3044,6 +3264,10 @@ impl DraftApp {
             .text_button(&app, palette, "button:open-logs", "Open")
             .id("open-logs")
             .on_click(cx.listener(|this, _, _, cx| this.open_logs_folder(cx)));
+        let diagnostics = self
+            .text_button(&app, palette, "button:copy-diagnostics", "Copy")
+            .id("copy-diagnostics")
+            .on_click(cx.listener(|this, _, _, cx| this.copy_diagnostics(cx)));
         let last = match self.last.as_ref() {
             Some(result) => format!(
                 "{:.0} ms · {:.1} s",
@@ -3079,6 +3303,13 @@ impl DraftApp {
             metrics.into_any_element(),
             setting_row(palette, "Logs", "Diagnostics from the last sessions.", open)
                 .into_any_element(),
+            setting_row(
+                palette,
+                "Diagnostics",
+                "Copy your PC details and recent log lines for a bug report. No audio or text.",
+                diagnostics,
+            )
+            .into_any_element(),
             setting_block(
                 palette,
                 "Command line",
@@ -3745,6 +3976,14 @@ fn engine_label(backend: Option<&str>, device: Option<&str>) -> String {
     }
 }
 
+fn model_size_label(bytes: u64) -> String {
+    if bytes >= 1_000_000_000 {
+        format!("{:.1} GB", bytes as f64 / 1e9)
+    } else {
+        format!("{} MB", bytes / 1_000_000)
+    }
+}
+
 fn model_label(path: &Path) -> String {
     let stem = path
         .file_stem()
@@ -3755,6 +3994,10 @@ fn model_label(path: &Path) -> String {
         "Whisper large-v3-turbo".to_owned()
     } else if lower.contains("large-v3") {
         "Whisper large-v3".to_owned()
+    } else if lower.contains("whisper-small") {
+        "Whisper small".to_owned()
+    } else if lower.contains("whisper-base") {
+        "Whisper base".to_owned()
     } else {
         stem.to_owned()
     }
@@ -3809,3 +4052,4 @@ fn partial_preview(text: &str) -> String {
         format!("…{}", chars[chars.len() - 200..].iter().collect::<String>())
     }
 }
+

@@ -272,3 +272,22 @@ The v3.5 baseline, the `transcribe.cpp` Vulkan engine, and the Rust benchmark
 harness are recorded. Release latency is well inside the contract. The
 remaining release gate is WER on real speech within 0.5 percentage points of
 v3.5; it has not been measured yet.
+
+## Model tiers (0.4.0)
+
+Draft picks a model at first launch from the GPU type and memory, RAM, and CPU
+threads (`models::recommend`). CPU-only numbers below were measured with
+`draftctl transcribe --backend cpu` on the reference laptop (i7-13620H, 12 of 16
+threads in use), release build, a 5 s clip, warm file cache:
+
+| Model | Size | Native time (mel / encode / decode) |
+|---|---|---|
+| Whisper base Q8_0 | 85 MB | 619 ms (15 / 402 / 200) |
+| Whisper small Q8_0 | 270 MB | 2,238 ms (18 / 1,514 / 702) |
+| large-v3-turbo F16 (previous CPU default) | 1.6 GB | about 9,500 ms |
+
+Weaker CPUs are slower by roughly the ratio of their single-thread speed, which
+is why only machines with 8 or more threads and 8 GB RAM get `small` on the CPU;
+everything else gets `base`. Integrated and small discrete GPUs get `small`;
+GPUs with 2 GB or more of VRAM get large-v3-turbo Q8_0; 5 GB or more gets F16.
+The integrated-GPU and Q8_0 tiers are not yet measured on real hardware.
