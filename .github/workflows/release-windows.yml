@@ -126,23 +126,52 @@ jobs:
       - name: Check the CPU baseline
         run: python tools/check-x86-baseline.py target/release/draft.exe
 
-      - name: Build the installer
+      - name: Build the installers
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target\release\draft.exe dist\draft.exe -Force
-          .\scripts\build-installer.ps1 -IncludeModel -ModelPath model\whisper-large-v3-turbo-F16.gguf
+          Copy-Item targetelease\draft.exe dist\draft.exe -Force
+          .\scriptsuild-installer.ps1
+          .\scriptsuild-installer.ps1 -IncludeModel -ModelPath model\whisper-large-v3-turbo-F16.gguf
 
-      - name: Write the checksum
+      # Code signing is optional and only runs once SignPath is set up (see
+      # docs/CODE_SIGNING.md): add the repository variables SIGNPATH_ORGANIZATION_ID,
+      # SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG and the secret SIGNPATH_API_TOKEN.
+      - name: Upload the unsigned installers
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: Draft-windows-x64-unsigned
+          path: dist/Draft-Setup-*.exe
+          if-no-files-found: error
+
+      - name: Sign the installers with SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist-signed
+
+      - name: Use the signed installers
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        shell: pwsh
+        run: Copy-Item dist-signed\Draft-Setup-*.exe dist\ -Force
+
+      - name: Write the checksums
         shell: pwsh
         run: |
-          $installer = Get-ChildItem dist\Draft-Setup-*.exe | Select-Object -First 1
-          if (-not $installer) { throw 'the installer was not built' }
-          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
-          "$hash  $($installer.Name)" | Out-File "$($installer.FullName).sha256" -Encoding ascii
-          Get-Content "$($installer.FullName).sha256"
+          foreach ($installer in Get-ChildItem dist\Draft-Setup-*.exe) {
+            $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($installer.Name)" | Out-File "$($installer.FullName).sha256" -Encoding ascii
+            Get-Content "$($installer.FullName).sha256"
+          }
 
-      - name: Upload the installer
+      - name: Upload the installers
         uses: actions/upload-artifact@v4
         with:
           name: Draft-windows-x64
