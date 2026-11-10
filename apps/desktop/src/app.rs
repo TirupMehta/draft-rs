@@ -4648,11 +4648,13 @@ fn engine_label(backend: Option<&str>, device: Option<&str>) -> String {
     }
 }
 
+/// A size in decimal units, rounded to the nearest whole megabyte so the
+/// number matches what the website and README say (85 MB, not 84 MB).
 fn model_size_label(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
         format!("{:.1} GB", bytes as f64 / 1e9)
     } else {
-        format!("{} MB", bytes / 1_000_000)
+        format!("{} MB", (bytes as f64 / 1e6).round() as u64)
     }
 }
 
@@ -4758,6 +4760,24 @@ mod tests {
         assert_eq!(relative_time(now - 5 * 60_000, now), "5 min ago");
         assert_eq!(relative_time(now - 3_600_000, now), "1 h ago");
         assert_eq!(relative_time(now - 2 * 86_400_000, now), "2 d ago");
+    }
+
+    #[test]
+    fn model_sizes_round_to_the_nearest_megabyte() {
+        use draft_core::models::{
+            WHISPER_BASE_Q8_0, WHISPER_LARGE_V3_TURBO_F16, WHISPER_LARGE_V3_TURBO_Q5_K_M,
+            WHISPER_SMALL_Q8_0,
+        };
+        assert_eq!(super::model_size_label(WHISPER_BASE_Q8_0.size), "85 MB");
+        assert_eq!(super::model_size_label(WHISPER_SMALL_Q8_0.size), "270 MB");
+        assert_eq!(
+            super::model_size_label(WHISPER_LARGE_V3_TURBO_Q5_K_M.size),
+            "620 MB"
+        );
+        assert_eq!(
+            super::model_size_label(WHISPER_LARGE_V3_TURBO_F16.size),
+            "1.6 GB"
+        );
     }
 
     #[test]
