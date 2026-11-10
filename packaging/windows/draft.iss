@@ -9,7 +9,7 @@
 ; history, logs, and the model) so reinstalling does not destroy local data.
 
 #ifndef AppVersion
-  #define AppVersion "0.4.0"
+  #define AppVersion "0.5.0"
 #endif
 #ifndef SourceExe
   #define SourceExe "..\..\dist\draft.exe"

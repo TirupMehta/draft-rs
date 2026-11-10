@@ -64,10 +64,12 @@ cloud, no account, and no audio leaving the machine.
 - Tray actions for Show, Hide, Paste last, and Quit. Draft starts in the tray
   at sign-in by default; the setting can be turned off.
 - Bounded local history: text and duration only, never audio, window titles, or
-  full URLs. A dedicated History pane is on the roadmap; the store and the
-  `draftctl history` commands exist today.
-- A resumable model installer that downloads the pinned F16 GGUF once, verifies
-  its SHA-256, and installs it atomically.
+  full URLs. The History tab lists the newest 50 with copy, delete, and a
+  two-click delete all; `draftctl history` searches all of them.
+- A seven-step speed/accuracy ladder, from an 85 MB English model to the full
+  1.6 GB large model. Draft measures your PC, recommends one, and downloads it
+  once with a resumable, SHA-256-verified, atomic install. You can pick any
+  other step in Settings > Recognition.
 - A per-user Windows installer that installs to `%LOCALAPPDATA%\Programs\Draft`,
   puts Draft and **Uninstall Draft** in one Start-menu folder, and offers an
   optional desktop shortcut. Uninstall removes the app and its license files;
@@ -84,10 +86,11 @@ Draft is built to be private without asking you to trust a policy.
 - History contains **text and duration only**.
 - Settings, history, logs, and the model live under
   `%LOCALAPPDATA%\Draft4`.
-- The Windows release installer includes the speech model, so dictation needs
-  no network. If you build from source without the bundled model, the one-time
-  model download is the only network exception: 1.63 GB, verified against a
-  pinned SHA-256.
+- The one network exception is the speech model. The standard installer is
+  small and downloads the model you choose once, on first launch, from the
+  pinned Hugging Face source (85 MB to 1.6 GB), verified against a pinned
+  SHA-256. The `-offline` installer bundles the large model instead. After the
+  model is on your PC, dictation needs no network.
 - There is no telemetry, analytics, crash reporting, or update ping.
 - The GitHub and X actions on the Credits page open your browser only when you
   choose them.
@@ -122,13 +125,14 @@ method, the measured CPU table, and the raw reports are in
 **Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
 baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
 
-1. Download `Draft-Setup-0.3.1.exe` from
-   [Releases](https://github.com/TirupMehta/draft-rs/releases/latest).
+1. Download `Draft-Setup-0.5.0.exe` from
+   [Releases](https://github.com/TirupMehta/draft-rs/releases/latest). Choose
+   `Draft-Setup-0.5.0-offline.exe` (1.3 GB) only if you want no first-run
+   download.
 2. Run the installer. It installs for the current user under
    `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
-3. The release installer includes the speech model; no separate download is
-   needed. If you build an installer without `-IncludeModel`, run
-   `draftctl model install` once to fetch and verify it.
+3. On first launch Draft picks a model for your PC and downloads it once, with
+   a progress bar. The offline installer already includes the large model.
 4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
 
 **To remove it:** Start menu → Draft → **Uninstall Draft**. That one entry
