@@ -47,7 +47,7 @@ impl Control {
 
 #[derive(Debug, Default)]
 pub struct Motion {
-    controls: Vec<(&'static str, Control)>,
+    controls: Vec<(String, Control)>,
     hover_duration: Duration,
     press_duration: Duration,
 }
@@ -64,7 +64,7 @@ impl Motion {
     fn control(&self, key: &str) -> Option<&Control> {
         self.controls
             .iter()
-            .find(|(name, _)| *name == key)
+            .find(|(name, _)| name == key)
             .map(|(_, control)| control)
     }
 
@@ -84,7 +84,7 @@ impl Motion {
 
     /// Ease a control's hover toward a target. The value continues from where
     /// it is, so a change in the middle of a transition never snaps.
-    pub fn set_hover(&mut self, key: &'static str, target: f32) {
+    pub fn set_hover(&mut self, key: &str, target: f32) {
         let now = Instant::now();
         let control = self.entry(key);
         if (control.hover.target - target).abs() < f32::EPSILON {
@@ -96,7 +96,7 @@ impl Motion {
     }
 
     /// Ease a control's press state toward a target.
-    pub fn set_press(&mut self, key: &'static str, target: f32) {
+    pub fn set_press(&mut self, key: &str, target: f32) {
         let now = Instant::now();
         let control = self.entry(key);
         if (control.press.target - target).abs() < f32::EPSILON {
@@ -109,16 +109,16 @@ impl Motion {
 
     /// Put a control at a value immediately. The state the app opens in is
     /// already selected, so the first frame must show that selection.
-    pub fn set(&mut self, key: &'static str, value: f32) {
+    pub fn set(&mut self, key: &str, value: f32) {
         let control = self.entry(key);
         control.hover = Tween::settled(value);
     }
 
-    fn entry(&mut self, key: &'static str) -> &mut Control {
-        match self.controls.iter().position(|(name, _)| *name == key) {
+    fn entry(&mut self, key: &str) -> &mut Control {
+        match self.controls.iter().position(|(name, _)| name == key) {
             Some(index) => &mut self.controls[index].1,
             None => {
-                self.controls.push((key, Control::new()));
+                self.controls.push((key.to_owned(), Control::new()));
                 &mut self.controls.last_mut().expect("just pushed").1
             }
         }
@@ -160,4 +160,43 @@ impl Motion {
 /// control arrives decisively and then stops instead of coasting.
 fn ease_out(progress: f32) -> f32 {
     1.0 - (1.0 - progress).powi(5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_key_built_at_runtime_eases_like_a_static_one() {
+        let mut motion = Motion::new(Duration::from_millis(40), Duration::from_millis(20));
+        let key = format!("history:copy:{}", 3);
+        assert_eq!(motion.hover(&key), 0.0);
+        motion.set_hover(&key, 1.0);
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(motion.advance());
+        assert_eq!(motion.hover(&key), 1.0);
+        // Settled: nothing left to repaint.
+        assert!(!motion.advance());
+    }
+
+    #[test]
+    fn a_retarget_mid_flight_continues_from_the_current_value() {
+        let mut motion = Motion::new(Duration::from_millis(200), Duration::from_millis(20));
+        motion.set_hover("a", 1.0);
+        std::thread::sleep(Duration::from_millis(60));
+        motion.advance();
+        let mid = motion.hover("a");
+        assert!(mid > 0.0 && mid < 1.0, "mid-flight value was {mid}");
+        motion.set_hover("a", 0.0);
+        motion.advance();
+        assert!(motion.hover("a") <= mid + 0.05, "must not snap upward");
+    }
+
+    #[test]
+    fn zero_duration_settles_at_once() {
+        let mut motion = Motion::new(Duration::ZERO, Duration::ZERO);
+        motion.set_hover("a", 1.0);
+        assert!(motion.advance());
+        assert_eq!(motion.hover("a"), 1.0);
+    }
 }

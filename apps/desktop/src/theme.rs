@@ -169,13 +169,69 @@ pub fn white() -> Rgba {
 
 /// Blend two colors. Controls use it to fade between their resting and
 /// hovered states instead of jumping.
+///
+/// The blend is premultiplied by alpha. `transparent()` is black at zero alpha,
+/// so a straight per-channel blend from it passed through a dark, translucent
+/// black on its way to the target: every hover and press flashed muddy. In
+/// premultiplied space a fade from transparent keeps the target's own color
+/// and only gains opacity. Between two opaque colors the result is unchanged.
 pub fn mix(a: Rgba, b: Rgba, amount: f32) -> Rgba {
-    let amount = amount.clamp(0.0, 1.0);
+    let t = amount.clamp(0.0, 1.0);
+    let alpha = a.a + (b.a - a.a) * t;
+    if alpha <= f32::EPSILON {
+        return Rgba {
+            r: b.r,
+            g: b.g,
+            b: b.b,
+            a: 0.0,
+        };
+    }
+    let channel = |from: f32, to: f32| (from * a.a * (1.0 - t) + to * b.a * t) / alpha;
     Rgba {
-        r: a.r + (b.r - a.r) * amount,
-        g: a.g + (b.g - a.g) * amount,
-        b: a.b + (b.b - a.b) * amount,
-        a: a.a + (b.a - a.a) * amount,
+        r: channel(a.r, b.r),
+        g: channel(a.g, b.g),
+        b: channel(a.b, b.b),
+        a: alpha,
+    }
+}
+
+#[cfg(test)]
+mod mix_tests {
+    use super::*;
+
+    #[test]
+    fn fading_from_transparent_keeps_the_target_color() {
+        let target = rgb(0xe8e2d8);
+        let half = mix(transparent(), target, 0.5);
+        assert!((half.a - 0.5).abs() < 1e-5);
+        assert!((half.r - target.r).abs() < 1e-5);
+        assert!((half.g - target.g).abs() < 1e-5);
+        assert!((half.b - target.b).abs() < 1e-5);
+    }
+
+    #[test]
+    fn fading_to_transparent_keeps_the_source_color() {
+        let source = rgb(0x203040);
+        let quarter = mix(source, transparent(), 0.25);
+        assert!((quarter.r - source.r).abs() < 1e-5);
+        assert!((quarter.a - 0.75).abs() < 1e-5);
+    }
+
+    #[test]
+    fn opaque_blends_are_plain_linear_interpolation() {
+        let a = rgb(0x000000);
+        let b = rgb(0xffffff);
+        let mid = mix(a, b, 0.25);
+        assert!((mid.r - 0.25).abs() < 1e-5);
+        assert!((mid.a - 1.0).abs() < 1e-5);
+        assert_eq!(mix(a, b, 0.0).r, 0.0);
+        assert_eq!(mix(a, b, 1.0).r, 1.0);
+    }
+
+    #[test]
+    fn fully_transparent_stays_transparent() {
+        assert_eq!(mix(transparent(), transparent(), 0.5).a, 0.0);
+        assert_eq!(mix(transparent(), rgb(0xffffff), 0.0).a, 0.0);
     }
 }
 

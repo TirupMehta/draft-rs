@@ -15,8 +15,9 @@ use draft_core::settings::Settings;
 use draft_engine::{ComputeBackend, EngineTimings};
 use draft_hotkey::{HotkeyConfig, HotkeyEvent, HotkeyListener};
 use gpui::{
-    AnyElement, AnyWindowHandle, Context, Div, Entity, IntoElement, Render, Rgba, Stateful,
-    WeakEntity, Window, WindowAppearance, WindowControlArea, div, prelude::*, px,
+    Animation, AnimationExt, AnyElement, AnyWindowHandle, Context, Div, Entity, IntoElement,
+    Render, Rgba, Stateful, WeakEntity, Window, WindowAppearance, WindowControlArea, div,
+    prelude::*, px,
 };
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
@@ -274,6 +275,10 @@ pub struct DraftApp {
     history: Option<draft_core::history::History>,
     /// True after the first click on "Delete all"; the second click confirms.
     history_confirm_clear: bool,
+    /// False when the system asks for reduced motion; screens then just appear.
+    animate: bool,
+    /// Bumped on every view or section change so the entrance restarts.
+    view_serial: u64,
     hud: Entity<DraftHud>,
     hud_snapshot: Option<HudSnapshot>,
     hud_at: Instant,
@@ -492,6 +497,8 @@ impl DraftApp {
             paste_enabled: paste,
             history,
             history_confirm_clear: false,
+            animate,
+            view_serial: 0,
             hud,
             hud_snapshot: None,
             hud_at: Instant::now(),
@@ -1294,6 +1301,7 @@ impl DraftApp {
             return;
         }
         self.view = view;
+        self.view_serial = self.view_serial.wrapping_add(1);
         self.motion.set_hover(
             "view:dictate",
             if view == View::Dictate { 1.0 } else { 0.0 },
@@ -1316,6 +1324,7 @@ impl DraftApp {
             return;
         }
         self.section = section;
+        self.view_serial = self.view_serial.wrapping_add(1);
         for (index, key) in SECTION_KEYS.iter().enumerate() {
             let selected = index == section.index();
             self.motion.set_hover(key, if selected { 1.0 } else { 0.0 });
@@ -1325,6 +1334,7 @@ impl DraftApp {
 
     fn open_section(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         self.section = section;
+        self.view_serial = self.view_serial.wrapping_add(1);
         self.set_view(View::Settings, window, cx);
     }
 
@@ -1561,9 +1571,14 @@ impl DraftApp {
     /// nothing else competing for attention.
     fn dictate_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
         let state = self.state_block(palette, cx);
+        let recent = self.recent_panel(palette, cx);
         let mut below = div().flex().flex_col().gap(px(6.0)).w_full();
         if let Some(last) = &self.last {
-            below = below.child(self.result_block(palette, last, cx));
+            // The recent list already echoes the text; the result row stays for
+            // what only it knows: a failed paste, or a device with no history.
+            if last.paste_error.is_some() || !self.has_recent_history() {
+                below = below.child(self.result_block(palette, last, cx));
+            }
         }
         if let Some(notice) = &self.notice {
             below = below.child(
@@ -1581,7 +1596,10 @@ impl DraftApp {
             .size_full()
             .child(self.title_bar(palette, cx))
             .child(div().h(px(1.0)).bg(palette.hairline))
-            .child(
+            .child(entrance(
+                self.animate,
+                self.view_serial,
+                "dictate-enter",
                 div()
                     .flex_1()
                     .min_h(px(0.0))
@@ -1620,8 +1638,10 @@ impl DraftApp {
                             .items_center()
                             .gap(px(theme::space::XXL))
                             .child(left);
-                        if self.phase != Phase::Error {
+                        if self.phase == Phase::Listening {
                             main = main.child(self.input_band(palette));
+                        } else if self.phase != Phase::Error {
+                            main = main.child(recent);
                         }
                         main
                     })
@@ -1635,7 +1655,7 @@ impl DraftApp {
                             .child(div().h(px(1.0)).bg(palette.hairline))
                             .child(self.footer(palette)),
                     ),
-            )
+            ))
     }
 
     /// The one thing the window is saying right now.
@@ -1697,7 +1717,7 @@ impl DraftApp {
                 }
             }
             Phase::Ready => {
-                parts.push(headline("Speak naturally.", palette.text).into_any_element());
+                parts.push(headline("Hold to dictate.", palette.text).into_any_element());
                 parts.push(keycap(palette, &self.hotkey_label).into_any_element());
                 let support = if !self.settings.onboarded {
                     "Try it now: click in any app, hold the key, say a sentence, and let go."
@@ -1922,6 +1942,133 @@ impl DraftApp {
     /// The last 1.6 seconds of real input level. The band is the recording
     /// instrument: a flat line means silence, and the bars only light while
     /// the key is held.
+    fn has_recent_history(&self) -> bool {
+        self.history
+            .as_ref()
+            .is_some_and(|history| !history.entries().is_empty())
+    }
+
+    /// The newest saved dictations, so an idle window shows something real
+    /// instead of an empty meter.
+    fn recent_panel(&self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let app = cx.entity().downgrade();
+        let now = draft_core::history::now_ms();
+        let rows: Vec<(String, i64)> = self
+            .history
+            .as_ref()
+            .map(|history| {
+                history
+                    .recent(3)
+                    .into_iter()
+                    .map(|entry| (entry.text.clone(), entry.created_at_ms))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .px(px(6.0));
+        if rows.is_empty() {
+            list = list.child(
+                div()
+                    .px(px(8.0))
+                    .text_size(px(theme::type_size::SMALL))
+                    .line_height(px(theme::line::SMALL))
+                    .text_color(palette.tertiary)
+                    .child("Nothing dictated yet."),
+            );
+        }
+        for (index, (text, created_at_ms)) in rows.into_iter().enumerate() {
+            let key = format!("recent:row:{index}");
+            let hover = self.motion.hover(&key);
+            let press = self.motion.press(&key);
+            let background = theme::mix(theme::transparent(), palette.raised_hover, hover);
+            let background = theme::mix(background, palette.canvas, press * 0.3);
+            let row = div()
+                .id(("recent-row", index))
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .px(px(8.0))
+                .py(px(6.0))
+                .w_full()
+                .rounded_md()
+                .bg(background)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.set_view(View::History, window, cx)),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .truncate()
+                        .text_size(px(theme::type_size::BODY))
+                        .line_height(px(theme::line::BODY))
+                        .text_color(palette.text)
+                        .child(clipped_line(&text, 27)),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::META))
+                        .line_height(px(theme::line::META))
+                        .text_color(palette.tertiary)
+                        .child(relative_time(created_at_ms, now)),
+                );
+            list = list.child(pressable(
+                app.clone(),
+                key.clone(),
+                hoverable(app.clone(), key, row),
+            ));
+        }
+
+        let all_hover = self.motion.hover("recent:all");
+        let see_all = hoverable(
+            app.clone(),
+            "recent:all",
+            div()
+                .id("recent-all")
+                .text_size(px(theme::type_size::META))
+                .line_height(px(theme::line::META))
+                .text_color(theme::mix(palette.secondary, palette.text, all_hover))
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.set_view(View::History, window, cx)),
+                )
+                .child("See all"),
+        );
+        div()
+            .flex_1()
+            .min_w(px(0.0))
+            .h(px(200.0))
+            .py(px(12.0))
+            .rounded_lg()
+            .bg(palette.raised)
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .w_full()
+                    .px(px(14.0))
+                    .child(
+                        div()
+                            .text_size(px(theme::type_size::META))
+                            .line_height(px(theme::line::META))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(palette.tertiary)
+                            .child("RECENT"),
+                    )
+                    .child(see_all),
+            )
+            .child(list)
+    }
+
     fn input_band(&self, palette: &theme::Palette) -> Div {
         const BARS: usize = 32;
         let live = self.phase == Phase::Listening;
@@ -2010,13 +2157,6 @@ impl DraftApp {
                     .gap(px(2.0))
                     .children(bars)
                     .child(div().w(px(1.0)).h_full().bg(palette.hairline_strong)),
-            )
-            .child(
-                div()
-                    .text_size(px(theme::type_size::META))
-                    .line_height(px(theme::line::META))
-                    .text_color(palette.tertiary)
-                    .child("LAST 1.6 s"),
             )
     }
 
@@ -2450,8 +2590,65 @@ impl DraftApp {
         self.clear_history(cx);
     }
 
+    /// A small bordered action. One style for every History button, so Copy,
+    /// Delete and Delete all read as one kind of control. Hover and press ease
+    /// through the shared motion store; a destructive one turns red.
+    fn history_button(
+        &self,
+        app: &WeakEntity<DraftApp>,
+        palette: &theme::Palette,
+        key: String,
+        id: (&'static str, usize),
+        label: String,
+        tone: ButtonTone,
+    ) -> Stateful<Div> {
+        let armed = tone == ButtonTone::Armed;
+        let destructive = tone != ButtonTone::Plain;
+        let hover = self.motion.hover(&key);
+        let press = self.motion.press(&key);
+        let (rest_background, rest_text, rest_border) = if armed {
+            (palette.danger_soft, palette.danger, palette.danger)
+        } else {
+            (
+                theme::transparent(),
+                palette.secondary,
+                palette.hairline_strong,
+            )
+        };
+        let (hover_background, hover_text, hover_border) = if destructive {
+            (palette.danger_soft, palette.danger, palette.danger)
+        } else {
+            (palette.raised_hover, palette.text, palette.tertiary)
+        };
+        let background = theme::mix(rest_background, hover_background, hover);
+        let background = theme::mix(background, palette.canvas, press * 0.35);
+        let element = div()
+            .id(id)
+            .h(px(28.0))
+            .px(px(12.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .border_1()
+            .border_color(theme::mix(rest_border, hover_border, hover))
+            .bg(background)
+            .text_size(px(theme::type_size::SMALL))
+            .line_height(px(theme::line::SMALL))
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .text_color(theme::mix(rest_text, hover_text, hover))
+            .cursor_pointer()
+            .child(label);
+        pressable(
+            app.clone(),
+            key.clone(),
+            hoverable(app.clone(), key, element),
+        )
+    }
+
     /// Saved dictations, newest first. Text and duration only, on this device.
     fn history_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let app = cx.entity().downgrade();
         let now = draft_core::history::now_ms();
         let (rows, total, policy) = match self.history.as_ref() {
             Some(history) => (
@@ -2485,84 +2682,78 @@ impl DraftApp {
             }
         };
 
-        let hover_background = palette.raised_hover;
-        let hover_text = palette.text;
-        let danger_soft = palette.danger_soft;
-        let danger = palette.danger;
-        let secondary_color = palette.secondary;
-        let action = move |id: (&'static str, usize),
-                           label: &'static str,
-                           hover_bg: gpui::Rgba,
-                           hover_fg: gpui::Rgba| {
-            div()
-                .id(id)
-                .px(px(10.0))
-                .py(px(4.0))
-                .rounded_md()
-                .text_size(px(theme::type_size::SMALL))
-                .line_height(px(theme::line::SMALL))
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(secondary_color)
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover_bg).text_color(hover_fg))
-                .child(label)
-        };
-
-        let mut list = div().flex().flex_col();
+        let mut list = div().flex().flex_col().gap(px(8.0)).w_full();
         for (index, (id, text, created_at_ms, duration_ms)) in rows.into_iter().enumerate() {
-            if index > 0 {
-                list = list.child(div().h(px(1.0)).bg(palette.hairline));
-            }
             let mut meta = relative_time(created_at_ms, now);
             if let Some(duration_ms) = duration_ms {
                 meta = format!("{meta} · {:.1} s spoken", duration_ms as f64 / 1000.0);
             }
             let copy_text = text.clone();
             let delete_id = id;
+            let copy = self
+                .history_button(
+                    &app,
+                    palette,
+                    format!("history:copy:{index}"),
+                    ("history-copy", index),
+                    "Copy".to_owned(),
+                    ButtonTone::Plain,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.copy_history_entry(copy_text.clone(), cx)
+                }));
+            let delete = self
+                .history_button(
+                    &app,
+                    palette,
+                    format!("history:delete:{index}"),
+                    ("history-delete", index),
+                    "Delete".to_owned(),
+                    ButtonTone::Destructive,
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.delete_history_entry(&delete_id, cx)),
+                );
             list = list.child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap(px(6.0))
-                    .py(px(theme::space::MD))
+                    .items_start()
+                    .gap(px(theme::space::LG))
+                    .w_full()
+                    .px(px(14.0))
+                    .py(px(12.0))
+                    .rounded_lg()
+                    .bg(palette.raised)
                     .child(
                         div()
-                            .text_size(px(theme::type_size::META))
-                            .line_height(px(theme::line::META))
-                            .text_color(palette.tertiary)
-                            .child(meta),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::type_size::BODY))
-                            .line_height(px(theme::line::BODY))
-                            .text_color(palette.text)
-                            .child(text),
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .text_size(px(theme::type_size::BODY))
+                                    .line_height(px(theme::line::BODY))
+                                    .text_color(palette.text)
+                                    .child(text),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(theme::type_size::META))
+                                    .line_height(px(theme::line::META))
+                                    .text_color(palette.tertiary)
+                                    .child(meta),
+                            ),
                     )
                     .child(
                         div()
                             .flex()
+                            .flex_shrink_0()
                             .items_center()
-                            .gap(px(2.0))
-                            .child(
-                                action(
-                                    ("history-copy", index),
-                                    "Copy",
-                                    hover_background,
-                                    hover_text,
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.copy_history_entry(copy_text.clone(), cx)
-                                    },
-                                )),
-                            )
-                            .child(
-                                action(("history-delete", index), "Delete", danger_soft, danger)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.delete_history_entry(&delete_id, cx)
-                                    })),
-                            ),
+                            .gap(px(6.0))
+                            .child(copy)
+                            .child(delete),
                     ),
             );
         }
@@ -2582,7 +2773,7 @@ impl DraftApp {
         } else if total > HISTORY_VISIBLE {
             list = list.child(
                 div()
-                    .pt(px(theme::space::MD))
+                    .pt(px(theme::space::SM))
                     .text_size(px(theme::type_size::META))
                     .line_height(px(theme::line::META))
                     .text_color(palette.tertiary)
@@ -2592,97 +2783,67 @@ impl DraftApp {
             );
         }
 
-        let mut header_actions = div().flex().items_center().gap(px(2.0));
+        let mut header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(theme::space::LG))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .font_family(theme::display_font())
+                    .text_size(px(theme::type_size::HEADLINE))
+                    .line_height(px(theme::line::HEADLINE))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(palette.text)
+                    .child("History"),
+            );
         if total > 0 {
             let confirming = self.history_confirm_clear;
-            let clear_label = if confirming {
+            let label = if confirming {
                 format!("Click again to delete all {total}")
             } else {
                 "Delete all".to_owned()
             };
-            header_actions = header_actions.child(
-                div()
-                    .id("history-clear")
-                    .px(px(10.0))
-                    .py(px(4.0))
-                    .rounded_md()
-                    .text_size(px(theme::type_size::SMALL))
-                    .line_height(px(theme::line::SMALL))
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(if confirming {
-                        palette.danger
-                    } else {
-                        palette.secondary
-                    })
-                    .bg(if confirming {
-                        palette.danger_soft
-                    } else {
-                        theme::transparent()
-                    })
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(danger_soft).text_color(danger))
-                    .on_click(cx.listener(|this, _, _, cx| this.confirm_clear_history(cx)))
-                    .child(clear_label),
+            header = header.child(
+                div().flex_shrink_0().child(
+                    self.history_button(
+                        &app,
+                        palette,
+                        "history:clear".to_owned(),
+                        ("history-clear", 0),
+                        label,
+                        if confirming {
+                            ButtonTone::Armed
+                        } else {
+                            ButtonTone::Destructive
+                        },
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.confirm_clear_history(cx))),
+                ),
             );
         }
 
-        let mut pane = div()
+        let pane = div()
             .flex()
             .flex_col()
-            .max_w(px(560.0))
+            .w_full()
+            .max_w(px(640.0))
+            .child(header)
             .child(
                 div()
-                    .flex()
-                    .items_end()
-                    .justify_between()
-                    .gap(px(theme::space::LG))
-                    .pb(px(theme::space::SM))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .gap(px(5.0))
-                            .child(
-                                div()
-                                    .w(px(22.0))
-                                    .h(px(2.0))
-                                    .rounded_full()
-                                    .bg(palette.accent),
-                            )
-                            .child(
-                                div()
-                                    .font_family(theme::display_font())
-                                    .text_size(px(theme::type_size::HEADLINE))
-                                    .line_height(px(theme::line::HEADLINE))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(palette.text)
-                                    .child("History"),
-                            ),
-                    )
-                    .child(header_actions),
-            )
-            .child(
-                div()
+                    .pt(px(5.0))
                     .pb(px(theme::space::LG))
                     .text_size(px(theme::type_size::SMALL))
                     .line_height(px(theme::line::SMALL))
-                    .text_color(palette.secondary)
-                    .child(retention),
-            );
-        if let Some(notice) = self.notice.as_deref() {
-            pane = pane.child(
-                div()
-                    .pb(px(theme::space::SM))
-                    .text_size(px(theme::type_size::SMALL))
-                    .line_height(px(theme::line::SMALL))
-                    .text_color(palette.accent_text)
-                    .child(notice.to_owned()),
-            );
-        }
-        pane = pane
-            .child(div().h(px(1.0)).bg(palette.hairline))
+                    .text_color(if self.notice.is_some() {
+                        palette.accent_text
+                    } else {
+                        palette.secondary
+                    })
+                    .child(self.notice.clone().unwrap_or(retention)),
+            )
             .child(list);
 
         div()
@@ -2691,7 +2852,10 @@ impl DraftApp {
             .size_full()
             .child(self.title_bar(palette, cx))
             .child(div().h(px(1.0)).bg(palette.hairline))
-            .child(
+            .child(entrance(
+                self.animate,
+                self.view_serial,
+                "history-enter",
                 div()
                     .id("history-pane")
                     .flex_1()
@@ -2700,7 +2864,7 @@ impl DraftApp {
                     .py(px(theme::space::XL))
                     .overflow_y_scroll()
                     .child(pane),
-            )
+            ))
     }
 
     fn settings_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
@@ -2741,16 +2905,8 @@ impl DraftApp {
                         div()
                             .text_size(px(theme::type_size::META))
                             .line_height(px(theme::line::META))
-                            .font_weight(gpui::FontWeight::MEDIUM)
                             .text_color(palette.tertiary)
-                            .child("ON-DEVICE"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::type_size::META))
-                            .line_height(px(theme::line::META))
-                            .text_color(palette.tertiary)
-                            .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+                            .child(format!("Draft {}", env!("CARGO_PKG_VERSION"))),
                     ),
             );
         let pane = self.section_pane(palette, cx);
@@ -2762,16 +2918,24 @@ impl DraftApp {
             .child(self.title_bar(palette, cx))
             .child(div().h(px(1.0)).bg(palette.hairline))
             .child(
-                div().flex().flex_1().min_h(px(0.0)).child(rail).child(
-                    div()
-                        .id("settings-pane")
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .px(px(theme::space::XXL))
-                        .py(px(theme::space::XL))
-                        .overflow_y_scroll()
-                        .child(pane),
-                ),
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(rail)
+                    .child(entrance(
+                        self.animate,
+                        self.view_serial,
+                        "settings-enter",
+                        div()
+                            .id("settings-pane")
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .px(px(theme::space::XXL))
+                            .py(px(theme::space::XL))
+                            .overflow_y_scroll()
+                            .child(pane),
+                    )),
             )
     }
 
@@ -2833,13 +2997,6 @@ impl DraftApp {
                 .flex_col()
                 .gap(px(5.0))
                 .pb(px(theme::space::LG))
-                .child(
-                    div()
-                        .w(px(22.0))
-                        .h(px(2.0))
-                        .rounded_full()
-                        .bg(palette.accent),
-                )
                 .child(
                     div()
                         .font_family(theme::display_font())
@@ -3336,14 +3493,24 @@ impl DraftApp {
                 .map(|state| state.is_installed())
                 .unwrap_or(false);
             let id = spec.id;
-            choices.push(
-                model_option(
-                    palette,
-                    index,
-                    spec,
+            let key = format!("model:option:{index}");
+            let option = model_option(
+                palette,
+                index,
+                spec,
+                ModelRowState {
                     selected,
                     installed,
-                    recommended == Some(spec.id),
+                    recommended: recommended == Some(spec.id),
+                    hover: self.motion.hover(&key),
+                    press: self.motion.press(&key),
+                },
+            );
+            choices.push(
+                pressable(
+                    app.clone(),
+                    key.clone(),
+                    hoverable(app.clone(), key, option),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.switch_model(id, cx)))
                 .into_any_element(),
@@ -3919,13 +4086,14 @@ fn privacy_step(palette: &theme::Palette, number: usize, label: &str, text: &str
 /// Ease a control's hover state instead of switching it instantly.
 fn hoverable(
     app: WeakEntity<DraftApp>,
-    key: &'static str,
+    key: impl Into<String>,
     element: Stateful<Div>,
 ) -> Stateful<Div> {
-    let app = app.clone();
+    let key: String = key.into();
     element.on_hover(move |hovered, _, cx| {
         let _ = app.update(cx, |this, cx| {
-            this.motion.set_hover(key, if *hovered { 1.0 } else { 0.0 });
+            this.motion
+                .set_hover(&key, if *hovered { 1.0 } else { 0.0 });
             cx.notify();
         });
     })
@@ -3934,28 +4102,28 @@ fn hoverable(
 /// Give a control a press state, so a click is felt as well as seen.
 fn pressable(
     app: WeakEntity<DraftApp>,
-    key: &'static str,
+    key: impl Into<String>,
     element: Stateful<Div>,
 ) -> Stateful<Div> {
-    let down = app.clone();
-    let up = app.clone();
-    let up_out = app.clone();
+    let key: String = key.into();
+    let (down, up, up_out) = (app.clone(), app.clone(), app);
+    let (down_key, up_key, out_key) = (key.clone(), key.clone(), key);
     element
         .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
             let _ = down.update(cx, |this, cx| {
-                this.motion.set_press(key, 1.0);
+                this.motion.set_press(&down_key, 1.0);
                 cx.notify();
             });
         })
         .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| {
             let _ = up.update(cx, |this, cx| {
-                this.motion.set_press(key, 0.0);
+                this.motion.set_press(&up_key, 0.0);
                 cx.notify();
             });
         })
         .on_mouse_up_out(gpui::MouseButton::Left, move |_, _, cx| {
             let _ = up_out.update(cx, |this, cx| {
-                this.motion.set_press(key, 0.0);
+                this.motion.set_press(&out_key, 0.0);
                 cx.notify();
             });
         })
@@ -4099,22 +4267,65 @@ fn phrase_reference(palette: &theme::Palette, rows: &[(&'static str, &'static st
 }
 
 /// A label and its explanation, with the control on the right.
+/// What a History button means. Destructive buttons turn red on hover; an armed
+/// one is already red and waits for the confirming click.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ButtonTone {
+    Plain,
+    Destructive,
+    Armed,
+}
+
+/// Everything a model row needs to draw itself.
+struct ModelRowState {
+    selected: bool,
+    installed: bool,
+    recommended: bool,
+    hover: f32,
+    press: f32,
+}
+
+/// How a screen arrives: it fades in and rises a few pixels, once, when you
+/// switch view or section. GPUI only asks for frames while the animation plays,
+/// so an idle window still costs nothing. A new `serial` restarts it. When the
+/// system asks for reduced motion the element is returned untouched.
+fn entrance<E>(animate: bool, serial: u64, id: &'static str, element: E) -> AnyElement
+where
+    E: IntoElement + Styled + 'static,
+{
+    if !animate {
+        return element.into_any_element();
+    }
+    element
+        .with_animation(
+            (id, serial as usize),
+            Animation::new(Duration::from_millis(220)).with_easing(gpui::ease_out_quint()),
+            |element, progress| element.opacity(progress).mt(px((1.0 - progress) * 10.0)),
+        )
+        .into_any_element()
+}
+
 /// The model Draft would pick for this PC, measured once in the background so
 /// the picker can say so without probing hardware while it draws.
 static RECOMMENDED_MODEL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
 /// One choice on the speed/accuracy ladder: what it is, who it suits, how big
-/// it is, and whether it is already on this PC.
+/// it is, and whether it is already on this PC. `hover` and `press` come from
+/// the motion store so the row eases like every other control.
 fn model_option(
     palette: &theme::Palette,
     index: usize,
     spec: &'static draft_core::models::ModelSpec,
-    selected: bool,
-    installed: bool,
-    recommended: bool,
+    state: ModelRowState,
 ) -> Stateful<Div> {
+    let ModelRowState {
+        selected,
+        installed,
+        recommended,
+        hover,
+        press,
+    } = state;
     let profile = draft_core::models::profile(spec);
-    let hover_background = palette.raised_hover;
     let pill = |text: &'static str, color: Rgba, background: Rgba| {
         div()
             .px(px(7.0))
@@ -4167,13 +4378,19 @@ fn model_option(
         .border_color(if selected {
             palette.accent
         } else {
-            palette.tertiary
+            theme::mix(palette.tertiary, palette.secondary, hover)
         })
         .bg(if selected {
             palette.accent
         } else {
             theme::transparent()
         });
+    let background = if selected {
+        palette.accent_soft
+    } else {
+        theme::mix(theme::transparent(), palette.raised_hover, hover)
+    };
+    let background = theme::mix(background, palette.canvas, press * 0.3);
     div()
         .id(("model-option", index))
         .flex()
@@ -4182,13 +4399,8 @@ fn model_option(
         .px(px(12.0))
         .py(px(10.0))
         .rounded_lg()
-        .bg(if selected {
-            palette.accent_soft
-        } else {
-            theme::transparent()
-        })
+        .bg(background)
         .cursor_pointer()
-        .hover(move |style| style.bg(hover_background))
         .child(dot)
         .child(
             div()
@@ -4496,11 +4708,17 @@ fn relative_time(created_at_ms: i64, now_ms: i64) -> String {
 }
 
 fn preview_line(text: &str) -> String {
+    clipped_line(text, 64)
+}
+
+/// One line of text, whitespace collapsed, ended with an ellipsis when it is
+/// longer than `max` characters.
+fn clipped_line(text: &str, max: usize) -> String {
     let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut chars = normalized.chars();
-    let head: String = chars.by_ref().take(64).collect();
+    let head: String = chars.by_ref().take(max).collect();
     if chars.next().is_some() {
-        format!("{head}…")
+        format!("{}…", head.trim_end())
     } else {
         head
     }
@@ -4540,6 +4758,13 @@ mod tests {
         assert_eq!(relative_time(now - 5 * 60_000, now), "5 min ago");
         assert_eq!(relative_time(now - 3_600_000, now), "1 h ago");
         assert_eq!(relative_time(now - 2 * 86_400_000, now), "2 d ago");
+    }
+
+    #[test]
+    fn clipped_line_ends_with_an_ellipsis_only_when_it_cuts() {
+        assert_eq!(super::clipped_line("short  text", 27), "short text");
+        assert_eq!(super::clipped_line("one two three four", 7), "one two…");
+        assert_eq!(super::clipped_line("héllo wörld", 5), "héllo…");
     }
 
     #[test]
