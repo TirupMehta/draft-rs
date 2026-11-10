@@ -10,4 +10,4 @@ A calmer, smoother Draft, with a History tab and a real choice of model.
 
 Free and MIT licensed. Windows 10/11 x64.
 
-**Not code-signed yet**, so Windows SmartScreen may warn: choose More info, then Run anyway. Verify the SHA-256 files first. The standard installer (about 11 MB) downloads your model once on first launch; `Draft-Setup-0.5.0-offline.exe` (1.33 GB) bundles the large model and needs no download.
+**Not code-signed yet**, so Windows SmartScreen may warn: choose More info, then Run anyway. Verify the SHA-256 files first. The standard installer (11.4 MB) downloads your model once on first launch; `Draft-Setup-0.5.0-offline.exe` (1.43 GB) bundles the large model and needs no download.

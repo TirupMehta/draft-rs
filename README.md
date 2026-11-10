@@ -127,7 +127,7 @@ baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
 
 1. Download `Draft-Setup-0.5.0.exe` from
    [Releases](https://github.com/TirupMehta/draft-rs/releases/latest). Choose
-   `Draft-Setup-0.5.0-offline.exe` (1.3 GB) only if you want no first-run
+   `Draft-Setup-0.5.0-offline.exe` (1.43 GB) only if you want no first-run
    download.
 2. Run the installer. It installs for the current user under
    `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
