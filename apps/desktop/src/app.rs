@@ -99,6 +99,7 @@ enum Phase {
 enum View {
     Dictate,
     Settings,
+    History,
 }
 
 /// Settings are grouped by intent, not by implementation.
@@ -183,8 +184,10 @@ pub(crate) fn initial_view_size() -> (f32, f32) {
 /// open on the everyday view.
 fn initial_view() -> View {
     #[cfg(debug_assertions)]
-    if std::env::var("DRAFT_VIEW").as_deref() == Ok("settings") {
-        return View::Settings;
+    match std::env::var("DRAFT_VIEW").as_deref() {
+        Ok("settings") => return View::Settings,
+        Ok("history") => return View::History,
+        _ => {}
     }
     View::Dictate
 }
@@ -269,6 +272,8 @@ pub struct DraftApp {
     /// that.
     paste_enabled: bool,
     history: Option<draft_core::history::History>,
+    /// True after the first click on "Delete all"; the second click confirms.
+    history_confirm_clear: bool,
     hud: Entity<DraftHud>,
     hud_snapshot: Option<HudSnapshot>,
     hud_at: Instant,
@@ -410,6 +415,10 @@ impl DraftApp {
             "view:settings",
             if view == View::Settings { 1.0 } else { 0.0 },
         );
+        motion.set(
+            "view:history",
+            if view == View::History { 1.0 } else { 0.0 },
+        );
         for (index, key) in SECTION_KEYS.iter().enumerate() {
             motion.set(key, if index == section.index() { 1.0 } else { 0.0 });
         }
@@ -478,6 +487,7 @@ impl DraftApp {
             settings_path,
             paste_enabled: paste,
             history,
+            history_confirm_clear: false,
             hud,
             hud_snapshot: None,
             hud_at: Instant::now(),
@@ -1288,6 +1298,12 @@ impl DraftApp {
             "view:settings",
             if view == View::Settings { 1.0 } else { 0.0 },
         );
+        self.motion.set_hover(
+            "view:history",
+            if view == View::History { 1.0 } else { 0.0 },
+        );
+        // A pending "delete everything" confirmation never survives leaving.
+        self.history_confirm_clear = false;
         cx.notify();
     }
 
@@ -1457,7 +1473,10 @@ impl DraftApp {
         if let Ok(entries) = std::fs::read_dir(draft_core::paths::data_dir().join("logs")) {
             let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
             files.sort();
-            if let Some(text) = files.last().and_then(|path| std::fs::read_to_string(path).ok()) {
+            if let Some(text) = files
+                .last()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+            {
                 let tail: Vec<&str> = text.lines().rev().take(80).collect();
                 report.push_str("\n--- last log lines ---\n");
                 for line in tail.into_iter().rev() {
@@ -2198,6 +2217,7 @@ impl DraftApp {
             .rounded_lg()
             .bg(palette.raised)
             .child(self.view_tab(app, palette, View::Dictate, cx))
+            .child(self.view_tab(app, palette, View::History, cx))
             .child(self.view_tab(app, palette, View::Settings, cx))
     }
 
@@ -2288,6 +2308,7 @@ impl DraftApp {
     ) -> impl IntoElement {
         let (selection_key, hover_key, label) = match view {
             View::Dictate => ("view:dictate", "tab:dictate", "Dictate"),
+            View::History => ("view:history", "tab:history", "History"),
             View::Settings => ("view:settings", "tab:settings", "Settings"),
         };
         let selected = self.motion.hover(selection_key);
@@ -2295,10 +2316,10 @@ impl DraftApp {
         let element = div()
             .id((
                 "view-tab",
-                if view == View::Dictate {
-                    0usize
-                } else {
-                    1usize
+                match view {
+                    View::Dictate => 0usize,
+                    View::Settings => 1usize,
+                    View::History => 2usize,
                 },
             ))
             .px(px(16.0))
@@ -2384,6 +2405,300 @@ impl DraftApp {
 
     /// Configuration lives in its own space, grouped by what a person is
     /// trying to change rather than by how the app is built.
+    fn copy_history_entry(&mut self, text: String, cx: &mut Context<Self>) {
+        let sender = self.clipboard_sender.clone();
+        std::thread::spawn(move || {
+            let message = match draft_paste::copy_text(&text) {
+                Ok(()) => "Copied to the clipboard.".to_owned(),
+                Err(error) => {
+                    tracing::warn!(%error, "could not copy a history entry");
+                    format!("Could not copy: {error:#}")
+                }
+            };
+            let _ = sender.send(message);
+        });
+        cx.notify();
+    }
+
+    fn delete_history_entry(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(history) = self.history.as_mut() else {
+            return;
+        };
+        self.notice = Some(match history.delete(id) {
+            Ok(_) => "Removed from history.".to_owned(),
+            Err(error) => {
+                tracing::warn!(%error, "could not delete a history entry");
+                format!("Could not delete: {error:#}")
+            }
+        });
+        cx.notify();
+    }
+
+    /// First click arms the button, the second click clears. The Privacy
+    /// settings keep their own single-click `clear_history`.
+    fn confirm_clear_history(&mut self, cx: &mut Context<Self>) {
+        if !self.history_confirm_clear {
+            self.history_confirm_clear = true;
+            cx.notify();
+            return;
+        }
+        self.history_confirm_clear = false;
+        self.clear_history(cx);
+    }
+
+    /// Saved dictations, newest first. Text and duration only, on this device.
+    fn history_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
+        let now = draft_core::history::now_ms();
+        let (rows, total, policy) = match self.history.as_ref() {
+            Some(history) => (
+                history
+                    .recent(HISTORY_VISIBLE)
+                    .into_iter()
+                    .map(|entry| {
+                        (
+                            entry.id.clone(),
+                            entry.text.clone(),
+                            entry.created_at_ms,
+                            entry.duration_ms,
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                history.entries().len(),
+                Some(history.policy()),
+            ),
+            None => (Vec::new(), 0, None),
+        };
+        let retention = match policy.map(|policy| policy.retention) {
+            None => "History is unavailable on this device.".to_owned(),
+            Some(draft_core::history::Retention::Off) => {
+                "History is off. New dictations are not saved.".to_owned()
+            }
+            Some(draft_core::history::Retention::Days(days)) => format!(
+                "Saved on this device only. Entries older than {days} days are removed automatically."
+            ),
+            Some(draft_core::history::Retention::Forever) => {
+                "Saved on this device only, until the storage limit is reached.".to_owned()
+            }
+        };
+
+        let hover_background = palette.raised_hover;
+        let hover_text = palette.text;
+        let danger_soft = palette.danger_soft;
+        let danger = palette.danger;
+        let secondary_color = palette.secondary;
+        let action = move |id: (&'static str, usize),
+                           label: &'static str,
+                           hover_bg: gpui::Rgba,
+                           hover_fg: gpui::Rgba| {
+            div()
+                .id(id)
+                .px(px(10.0))
+                .py(px(4.0))
+                .rounded_md()
+                .text_size(px(theme::type_size::SMALL))
+                .line_height(px(theme::line::SMALL))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(secondary_color)
+                .cursor_pointer()
+                .hover(move |style| style.bg(hover_bg).text_color(hover_fg))
+                .child(label)
+        };
+
+        let mut list = div().flex().flex_col();
+        for (index, (id, text, created_at_ms, duration_ms)) in rows.into_iter().enumerate() {
+            if index > 0 {
+                list = list.child(div().h(px(1.0)).bg(palette.hairline));
+            }
+            let mut meta = relative_time(created_at_ms, now);
+            if let Some(duration_ms) = duration_ms {
+                meta = format!("{meta} · {:.1} s spoken", duration_ms as f64 / 1000.0);
+            }
+            let copy_text = text.clone();
+            let delete_id = id;
+            list = list.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .py(px(theme::space::MD))
+                    .child(
+                        div()
+                            .text_size(px(theme::type_size::META))
+                            .line_height(px(theme::line::META))
+                            .text_color(palette.tertiary)
+                            .child(meta),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::type_size::BODY))
+                            .line_height(px(theme::line::BODY))
+                            .text_color(palette.text)
+                            .child(text),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(2.0))
+                            .child(
+                                action(
+                                    ("history-copy", index),
+                                    "Copy",
+                                    hover_background,
+                                    hover_text,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.copy_history_entry(copy_text.clone(), cx)
+                                    },
+                                )),
+                            )
+                            .child(
+                                action(("history-delete", index), "Delete", danger_soft, danger)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.delete_history_entry(&delete_id, cx)
+                                    })),
+                            ),
+                    ),
+            );
+        }
+        if total == 0 {
+            list = list.child(
+                div()
+                    .py(px(theme::space::XL))
+                    .text_size(px(theme::type_size::BODY))
+                    .line_height(px(theme::line::BODY))
+                    .text_color(palette.secondary)
+                    .child(if policy.is_some_and(|p| !p.accepts_new_entries()) {
+                        "Nothing is being saved."
+                    } else {
+                        "No dictations saved yet. Hold your key, speak, and release."
+                    }),
+            );
+        } else if total > HISTORY_VISIBLE {
+            list = list.child(
+                div()
+                    .pt(px(theme::space::MD))
+                    .text_size(px(theme::type_size::META))
+                    .line_height(px(theme::line::META))
+                    .text_color(palette.tertiary)
+                    .child(format!(
+                        "Showing the newest {HISTORY_VISIBLE} of {total}. Search all of them with draftctl history."
+                    )),
+            );
+        }
+
+        let mut header_actions = div().flex().items_center().gap(px(2.0));
+        if total > 0 {
+            let confirming = self.history_confirm_clear;
+            let clear_label = if confirming {
+                format!("Click again to delete all {total}")
+            } else {
+                "Delete all".to_owned()
+            };
+            header_actions = header_actions.child(
+                div()
+                    .id("history-clear")
+                    .px(px(10.0))
+                    .py(px(4.0))
+                    .rounded_md()
+                    .text_size(px(theme::type_size::SMALL))
+                    .line_height(px(theme::line::SMALL))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(if confirming {
+                        palette.danger
+                    } else {
+                        palette.secondary
+                    })
+                    .bg(if confirming {
+                        palette.danger_soft
+                    } else {
+                        theme::transparent()
+                    })
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(danger_soft).text_color(danger))
+                    .on_click(cx.listener(|this, _, _, cx| this.confirm_clear_history(cx)))
+                    .child(clear_label),
+            );
+        }
+
+        let mut pane = div()
+            .flex()
+            .flex_col()
+            .max_w(px(560.0))
+            .child(
+                div()
+                    .flex()
+                    .items_end()
+                    .justify_between()
+                    .gap(px(theme::space::LG))
+                    .pb(px(theme::space::SM))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .gap(px(5.0))
+                            .child(
+                                div()
+                                    .w(px(22.0))
+                                    .h(px(2.0))
+                                    .rounded_full()
+                                    .bg(palette.accent),
+                            )
+                            .child(
+                                div()
+                                    .font_family(theme::display_font())
+                                    .text_size(px(theme::type_size::HEADLINE))
+                                    .line_height(px(theme::line::HEADLINE))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(palette.text)
+                                    .child("History"),
+                            ),
+                    )
+                    .child(header_actions),
+            )
+            .child(
+                div()
+                    .pb(px(theme::space::LG))
+                    .text_size(px(theme::type_size::SMALL))
+                    .line_height(px(theme::line::SMALL))
+                    .text_color(palette.secondary)
+                    .child(retention),
+            );
+        if let Some(notice) = self.notice.as_deref() {
+            pane = pane.child(
+                div()
+                    .pb(px(theme::space::SM))
+                    .text_size(px(theme::type_size::SMALL))
+                    .line_height(px(theme::line::SMALL))
+                    .text_color(palette.accent_text)
+                    .child(notice.to_owned()),
+            );
+        }
+        pane = pane
+            .child(div().h(px(1.0)).bg(palette.hairline))
+            .child(list);
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(self.title_bar(palette, cx))
+            .child(div().h(px(1.0)).bg(palette.hairline))
+            .child(
+                div()
+                    .id("history-pane")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .px(px(theme::space::XXL))
+                    .py(px(theme::space::XL))
+                    .overflow_y_scroll()
+                    .child(pane),
+            )
+    }
+
     fn settings_view(&mut self, palette: &theme::Palette, cx: &mut Context<Self>) -> Div {
         let app = cx.entity().downgrade();
         let mut rail = div()
@@ -2946,7 +3261,8 @@ impl DraftApp {
     /// model first if it is not on disk yet.
     fn switch_model(&mut self, id: &'static str, cx: &mut Context<Self>) {
         if self.recorder.is_some() {
-            self.notice = Some("Finish the current dictation before changing the model.".to_owned());
+            self.notice =
+                Some("Finish the current dictation before changing the model.".to_owned());
             cx.notify();
             return;
         }
@@ -3474,6 +3790,7 @@ impl Render for DraftApp {
         match view {
             View::Dictate => root.child(self.dictate_view(&palette, cx)),
             View::Settings => root.child(self.settings_view(&palette, cx)),
+            View::History => root.child(self.history_view(&palette, cx)),
         }
     }
 }
@@ -4021,6 +4338,20 @@ fn elapsed_label(start: Instant) -> String {
 
 /// One line of transcript for the result strip. The full text lives in the
 /// history; this is the confirmation that it arrived.
+/// How many saved dictations the History view lists. The store keeps more.
+const HISTORY_VISIBLE: usize = 50;
+
+/// "just now", "5 min ago", "3 h ago", "2 d ago", from real timestamps.
+fn relative_time(created_at_ms: i64, now_ms: i64) -> String {
+    let seconds = (now_ms.saturating_sub(created_at_ms) / 1000).max(0);
+    match seconds {
+        0..=44 => "just now".to_owned(),
+        45..=3_599 => format!("{} min ago", (seconds + 30) / 60),
+        3_600..=86_399 => format!("{} h ago", seconds / 3_600),
+        _ => format!("{} d ago", seconds / 86_400),
+    }
+}
+
 fn preview_line(text: &str) -> String {
     let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut chars = normalized.chars();
@@ -4053,3 +4384,24 @@ fn partial_preview(text: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::relative_time;
+
+    #[test]
+    fn relative_time_reads_naturally() {
+        let now = 10_000_000_000;
+        assert_eq!(relative_time(now, now), "just now");
+        assert_eq!(relative_time(now - 44_000, now), "just now");
+        assert_eq!(relative_time(now - 60_000, now), "1 min ago");
+        assert_eq!(relative_time(now - 5 * 60_000, now), "5 min ago");
+        assert_eq!(relative_time(now - 3_600_000, now), "1 h ago");
+        assert_eq!(relative_time(now - 2 * 86_400_000, now), "2 d ago");
+    }
+
+    #[test]
+    fn relative_time_never_goes_negative() {
+        // A clock that moved backwards must not print a negative age.
+        assert_eq!(relative_time(2_000, 1_000), "just now");
+    }
+}

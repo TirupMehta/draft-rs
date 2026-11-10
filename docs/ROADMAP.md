@@ -92,7 +92,10 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
       quarantine for a malformed file. Exposed through `draftctl history`.
 - [x] Record finished dictations into history from the app thread; a failed
       write never blocks dictation.
-- [ ] History pane with search, copy, delete, clear, and retention controls.
+- [x] History tab: newest 50 dictations with age and spoken length, copy, delete,
+      two-click delete all, and an honest retention line. Text and duration only.
+- [ ] History search box and retention controls in the app (search works in
+      `draftctl history`; the app has no text-input widget yet).
 - [ ] Corrections, taught words, hotwords.
 - [x] Launch at login on Windows: a per-user Run entry starts Draft silently in
       the tray, with a Settings > Startup toggle.
