@@ -1,5 +1,12 @@
 # macOS
 
+> **CI status (2026-11-10).** The `macos-14` job was removed from `.github/workflows/check.yml`.
+> GitHub now rejects that runner configuration for this account ("The configuration
+> 'macos-14-arm64-us-default' is not supported"), so the job could not start. The macOS code
+> is therefore **not compiled in CI** today and may have drifted since the last green run
+> (`87a33d3`). The `release-macos` workflow is unchanged but cannot run until a macOS runner is
+> available again. Treat everything below about the `macos-14` job as history.
+
 Draft is a Windows app today. This document is the plan for a macOS build, what
 is already neutral, what is genuinely missing, and what cannot be confirmed
 without an Apple machine.

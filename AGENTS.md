@@ -16,7 +16,7 @@ the open work is in `docs/ROADMAP.md`.
 Draft is a private, on-device dictation app for Windows. You hold a key, speak,
 release, and the transcript is pasted at your cursor. The model runs locally
 (Whisper large-v3-turbo, F16 GGUF, Vulkan). Audio never leaves the machine. A
-macOS Apple Silicon preview builds in CI and ships as an ad-hoc-signed DMG, but
+macOS Apple Silicon preview shipped as an ad-hoc-signed DMG (v0.2.0-macos.1; it is no longer built in CI because GitHub rejects the `macos-14` runner for this account, see `docs/MACOS.md`), but
 it has not been run on a physical Mac; `docs/MACOS.md` is the authoritative
 status.
 
