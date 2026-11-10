@@ -63,8 +63,8 @@ Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}\licenses"; DestName: "LICENSE.txt
 Source: "{#RepoRoot}\NOTICE"; DestDir: "{app}\licenses"; DestName: "NOTICE.txt"; Flags: ignoreversion
 Source: "{#RepoRoot}\CREDITS.md"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "{#RepoRoot}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}\licenses"; Flags: ignoreversion
-Source: "{#RepoRoot}\assets\fonts\Inter-OFL.txt"; DestDir: "{app}\licenses"; DestName: "Inter-OFL.txt"; Flags: ignoreversion
-Source: "{#RepoRoot}\assets\fonts\JetBrainsMono-OFL.txt"; DestDir: "{app}\licenses"; DestName: "JetBrainsMono-OFL.txt"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\fonts\InstrumentSans-OFL.txt"; DestDir: "{app}\licenses"; DestName: "InstrumentSans-OFL.txt"; Flags: ignoreversion
+Source: "{#RepoRoot}\assets\fonts\InstrumentSerif-OFL.txt"; DestDir: "{app}\licenses"; DestName: "InstrumentSerif-OFL.txt"; Flags: ignoreversion
 #ifdef IncludeModel
 ; The model lands in the app's data folder, not the install folder, so the
 ; uninstaller must leave it alone: the confirmation promises to keep it, and a

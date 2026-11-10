@@ -32,13 +32,13 @@ terms; see the model page.
 
 ## Type
 
-**Inter** - the interface typeface, designed by Rasmus Andersson. Licensed
-under the SIL Open Font License 1.1.
-[Source](https://github.com/rsms/inter)
+**Instrument Sans** - the interface typeface, by the Instrument Sans Project
+Authors. Licensed under the SIL Open Font License 1.1.
+[Source](https://github.com/Instrument/instrument-sans)
 
-**JetBrains Mono** - the live timer and command-line typeface, by JetBrains.
-Licensed under the SIL Open Font License 1.1.
-[Source](https://github.com/JetBrains/JetBrainsMono)
+**Instrument Serif** - the large display lines and the live timer, by the
+Instrument Serif Project Authors. Licensed under the SIL Open Font License 1.1.
+[Source](https://github.com/Instrument/instrument-serif)
 
 The font files and their license texts are bundled in `assets/fonts` and are
 installed beside the app in `licenses`.

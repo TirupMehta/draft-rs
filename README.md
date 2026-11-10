@@ -212,7 +212,7 @@ crates/draft-hotkey    hold-to-talk key: platform-neutral config, Windows hook
 crates/draft-paste     clipboard insertion
 crates/draft-cli       the draftctl development binary
 apps/desktop           the GPUI shell (the product UI)
-assets                 app icon and bundled Inter / JetBrains Mono
+assets                 app icon and bundled Instrument Sans / Serif
 bench                  fixtures, baseline data, latency measurements
 docs                   specification, roadmap, performance, macOS plan
 packaging/windows      the Inno Setup installer
@@ -246,8 +246,7 @@ Draft 0.3.1 is an early Windows release.
 Draft is designed and built by [Tirup Mehta](https://github.com/TirupMehta).
 It is built on **GPUI** by Zed Industries (Apache-2.0), **transcribe.cpp**
 (MIT), **Whisper large-v3-turbo** by OpenAI in a GGUF build by handy-computer,
-**Inter** by Rasmus Andersson (OFL 1.1), and **JetBrains Mono** by JetBrains
-(OFL 1.1). The full list is in [CREDITS.md](CREDITS.md), and every Rust
+**Instrument Sans** and **Instrument Serif** (OFL 1.1). The full list is in [CREDITS.md](CREDITS.md), and every Rust
 dependency is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 The Credits section is also available in the app, under Settings → Credits,

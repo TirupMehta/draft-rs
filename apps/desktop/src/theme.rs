@@ -242,11 +242,13 @@ pub mod type_size {
     pub const SMALL: f32 = 13.0;
     pub const BODY: f32 = 14.0;
     pub const TITLE: f32 = 17.0;
-    pub const HEADLINE: f32 = 26.0;
+    pub const HEADLINE: f32 = 30.0;
     /// The one hero line on the everyday surface.
-    pub const DISPLAY: f32 = 34.0;
+    pub const DISPLAY: f32 = 42.0;
     /// The live elapsed time. It is the largest number in the product.
-    pub const TIMER: f32 = 48.0;
+    /// The label on the physical key under the hero line.
+    pub const KEYCAP: f32 = 28.0;
+    pub const TIMER: f32 = 56.0;
 }
 
 /// Line heights are set explicitly everywhere, so no text node inherits a
@@ -256,21 +258,50 @@ pub mod line {
     pub const SMALL: f32 = 17.0;
     pub const BODY: f32 = 21.0;
     pub const TITLE: f32 = 24.0;
-    pub const HEADLINE: f32 = 32.0;
-    pub const DISPLAY: f32 = 40.0;
-    pub const TIMER: f32 = 54.0;
+    pub const HEADLINE: f32 = 36.0;
+    pub const DISPLAY: f32 = 46.0;
+    pub const KEYCAP: f32 = 34.0;
+    pub const TIMER: f32 = 60.0;
 }
 
+/// Instrument Serif, regular weight only. It carries the few lines that matter
+/// (the hero line, the section titles, the timer) and is never set bold.
 pub fn display_font() -> &'static str {
-    "Inter"
+    "Instrument Serif"
 }
 
+/// Instrument Sans, for every other word in the interface.
 pub fn text_font() -> &'static str {
-    "Inter"
+    "Instrument Sans"
 }
 
-pub fn mono_font() -> &'static str {
-    "JetBrains Mono"
+/// A running time such as `0:01.8`, drawn in fixed-width cells. Instrument
+/// Serif has no tabular figures, so each digit gets the same width and the
+/// number never shivers as it counts.
+pub fn timer_digits(text: &str, size: f32, line: f32, color: Rgba) -> gpui::Div {
+    use gpui::{ParentElement, Styled, div, px};
+    let digit = size * 0.5;
+    let separator = size * 0.26;
+    div()
+        .flex()
+        .items_center()
+        .h(px(line))
+        .font_family(display_font())
+        .text_size(px(size))
+        .line_height(px(line))
+        .text_color(color)
+        .children(text.chars().map(move |ch| {
+            let width = if ch.is_ascii_digit() {
+                digit
+            } else {
+                separator
+            };
+            div()
+                .w(px(width))
+                .flex()
+                .justify_center()
+                .child(ch.to_string())
+        }))
 }
 
 /// The HUD floats over other applications, so it gets one soft shadow to lift

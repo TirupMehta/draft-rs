@@ -5,8 +5,11 @@ registered at startup, so type renders identically on every Windows machine.
 
 | File | Source | License |
 |---|---|---|
-| `Inter-Regular.ttf`, `Inter-Medium.ttf`, `Inter-SemiBold.ttf` | [Inter 4.1](https://github.com/rsms/inter/releases/tag/v4.1) | SIL OFL 1.1 (`Inter-OFL.txt`) |
-| `JetBrainsMono-Regular.ttf`, `JetBrainsMono-Medium.ttf` | [JetBrains Mono 2.304](https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304) | SIL OFL 1.1 (`JetBrainsMono-OFL.txt`) |
+| `InstrumentSans-Regular.ttf`, `InstrumentSans-Medium.ttf`, `InstrumentSans-SemiBold.ttf` | [Instrument Sans](https://github.com/Instrument/instrument-sans), static instances of the variable font at weights 400, 500 and 600, Latin subset | SIL OFL 1.1 (`InstrumentSans-OFL.txt`) |
+| `InstrumentSerif-Regular.ttf` | [Instrument Serif](https://github.com/Instrument/instrument-serif), Latin subset | SIL OFL 1.1 (`InstrumentSerif-OFL.txt`) |
 
-Inter is the interface face. JetBrains Mono is used only for the live timer
-and the command-line example, where tabular figures matter.
+Instrument Sans is the interface face. Instrument Serif carries the few large
+lines (the hero line, the section titles, the live timer) and is only ever set
+at its single regular weight. The same two faces set the website, so the app and
+the site read as one product. The weights were instanced from the website's
+variable font; nothing here is fetched at build or run time.

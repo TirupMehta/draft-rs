@@ -154,11 +154,15 @@ There is exactly one accent. If a second hue appears, one of the two is wrong.
 
 ### Type
 
-Inter (Regular, Medium, SemiBold) for every interface node, bundled in
-`assets/fonts`. JetBrains Mono (Regular, Medium) for the live timer and the
-command-line example, where tabular figures matter. Both are registered at
-startup so rendering is identical on every machine; sources and the OFL
-licenses live next to the files. Sizes in `theme::type_size`:
+Instrument Sans (Regular, Medium, SemiBold) for every interface node and
+Instrument Serif (Regular only, never bold) for the few large lines: the hero
+line, the section titles and the live timer. There is no monospace face. The
+timer is drawn by `theme::timer_digits` in fixed-width cells, because Instrument
+Serif has no tabular figures. Both are bundled in `assets/fonts` and registered
+at startup so rendering is identical on every machine; sources and the OFL
+licenses live next to the files, and the website sets its type in the same two
+faces. Do not reintroduce Inter or a coding mono: they read as a default.
+Sizes in `theme::type_size`:
 
 | Token | Size | Use |
 |---|---|---|

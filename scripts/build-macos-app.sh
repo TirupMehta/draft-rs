@@ -46,9 +46,9 @@ cp "$root/LICENSE" "$app/Contents/Resources/licenses/LICENSE.txt"
 cp "$root/NOTICE" "$app/Contents/Resources/licenses/NOTICE.txt"
 cp "$root/CREDITS.md" "$app/Contents/Resources/licenses/CREDITS.md"
 cp "$root/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/licenses/THIRD_PARTY_NOTICES.md"
-cp "$root/assets/fonts/Inter-OFL.txt" "$app/Contents/Resources/licenses/Inter-OFL.txt"
-cp "$root/assets/fonts/JetBrainsMono-OFL.txt" \
-    "$app/Contents/Resources/licenses/JetBrainsMono-OFL.txt"
+cp "$root/assets/fonts/InstrumentSans-OFL.txt" "$app/Contents/Resources/licenses/InstrumentSans-OFL.txt"
+cp "$root/assets/fonts/InstrumentSerif-OFL.txt" \
+    "$app/Contents/Resources/licenses/InstrumentSerif-OFL.txt"
 
 # A DMG is the only installer on macOS, so a release build carries the F16
 # artifact. `main.rs` reads it from Resources/models when the data folder has no

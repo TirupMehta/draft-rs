@@ -147,7 +147,7 @@ impl Render for DraftHud {
                 .gap(px(6.0))
                 .child(
                     div()
-                        .font_family(theme::mono_font())
+                        .font_family(theme::text_font())
                         .text_size(px(theme::type_size::META))
                         .line_height(px(15.0))
                         .text_color(palette.tertiary)
@@ -169,7 +169,7 @@ impl Render for DraftHud {
                         .bg(palette.raised)
                         .border_1()
                         .border_color(palette.hairline)
-                        .font_family(theme::mono_font())
+                        .font_family(theme::text_font())
                         .text_size(px(10.0))
                         .line_height(px(12.0))
                         .text_color(palette.secondary)

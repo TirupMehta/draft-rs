@@ -1735,14 +1735,13 @@ impl DraftApp {
                     .map(elapsed_label)
                     .unwrap_or_else(|| "0:00.0".to_owned());
                 parts.push(
-                    div()
-                        .font_family(theme::mono_font())
-                        .text_size(px(theme::type_size::TIMER))
-                        .line_height(px(theme::line::TIMER))
-                        .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_color(palette.accent_text)
-                        .child(timer)
-                        .into_any_element(),
+                    theme::timer_digits(
+                        &timer,
+                        theme::type_size::TIMER,
+                        theme::line::TIMER,
+                        palette.accent_text,
+                    )
+                    .into_any_element(),
                 );
                 parts.push(secondary(palette, "Release to transcribe.").into_any_element());
                 if let Some(partial) = self.partial.as_deref() {
@@ -2197,7 +2196,7 @@ impl DraftApp {
                     .child(brand_mark(palette, 28.0))
                     .child(
                         div()
-                            .font_family(theme::display_font())
+                            .font_family(theme::text_font())
                             .text_size(px(theme::type_size::TITLE))
                             .line_height(px(theme::line::TITLE))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
@@ -2795,7 +2794,6 @@ impl DraftApp {
                     .font_family(theme::display_font())
                     .text_size(px(theme::type_size::HEADLINE))
                     .line_height(px(theme::line::HEADLINE))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(palette.text)
                     .child("History"),
             );
@@ -3002,7 +3000,6 @@ impl DraftApp {
                         .font_family(theme::display_font())
                         .text_size(px(theme::type_size::HEADLINE))
                         .line_height(px(theme::line::HEADLINE))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(palette.text)
                         .child(section.title()),
                 )
@@ -3541,7 +3538,7 @@ impl DraftApp {
                 "Model file",
                 "A local file, checked against a pinned checksum when it is installed. Draft never downloads a model while you dictate.",
                 div()
-                    .font_family(theme::mono_font())
+                    .font_family(theme::text_font())
                     .text_size(px(theme::type_size::META))
                     .line_height(px(15.0))
                     .text_color(palette.tertiary)
@@ -3659,7 +3656,7 @@ impl DraftApp {
             .py(px(theme::space::SM))
             .child(
                 div()
-                    .font_family(theme::display_font())
+                    .font_family(theme::text_font())
                     .text_size(px(theme::type_size::TITLE))
                     .line_height(px(theme::line::TITLE))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
@@ -3779,7 +3776,7 @@ impl DraftApp {
             .py(px(theme::space::XS))
             .rounded_md()
             .bg(palette.keycap)
-            .font_family(theme::mono_font())
+            .font_family(theme::text_font())
             .text_size(px(theme::type_size::META))
             .line_height(px(theme::line::META))
             .text_color(palette.secondary)
@@ -3835,7 +3832,7 @@ impl DraftApp {
                     .gap(px(2.0))
                     .child(
                         div()
-                            .font_family(theme::display_font())
+                            .font_family(theme::text_font())
                             .text_size(px(theme::type_size::TITLE))
                             .line_height(px(theme::line::TITLE))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
@@ -3878,7 +3875,10 @@ impl DraftApp {
                     .child(div().h(px(1.0)).bg(palette.hairline))
                     .child(credit_line(palette, "Inference", "transcribe.cpp").py(px(5.0)))
                     .child(div().h(px(1.0)).bg(palette.hairline))
-                    .child(credit_line(palette, "Type", "Inter · JetBrains Mono").py(px(5.0)))
+                    .child(
+                        credit_line(palette, "Type", "Instrument Sans · Instrument Serif")
+                            .py(px(5.0)),
+                    )
                     .child(div().h(px(1.0)).bg(palette.hairline))
                     .child(credit_line(palette, "Model", "Whisper large-v3-turbo").py(px(5.0))),
             );
@@ -3994,13 +3994,11 @@ fn headline(text: &str, color: Rgba) -> Div {
         .font_family(theme::display_font())
         .text_size(px(theme::type_size::DISPLAY))
         .line_height(px(theme::line::DISPLAY))
-        .font_weight(gpui::FontWeight::SEMIBOLD)
         .text_color(color)
         .child(text.to_owned())
 }
 
-/// The physical key under the hero line. The label is the same 34 px as the
-/// headline; the cap and its shade make it read as hardware, not a button.
+/// The physical key under the hero line. The label is set in the interface face; the cap and its shade make it read as hardware, not a button.
 fn keycap(palette: &theme::Palette, label: &str) -> Div {
     div()
         .flex()
@@ -4017,8 +4015,8 @@ fn keycap(palette: &theme::Palette, label: &str) -> Div {
                 .border_1()
                 .border_color(palette.hairline_strong)
                 .font_family(theme::text_font())
-                .text_size(px(theme::type_size::DISPLAY))
-                .line_height(px(theme::line::DISPLAY))
+                .text_size(px(theme::type_size::KEYCAP))
+                .line_height(px(theme::line::KEYCAP))
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(palette.text)
                 .child(label.to_owned()),
@@ -4056,7 +4054,7 @@ fn privacy_step(palette: &theme::Palette, number: usize, label: &str, text: &str
             div()
                 .w(px(16.0))
                 .flex_shrink_0()
-                .font_family(theme::mono_font())
+                .font_family(theme::text_font())
                 .text_size(px(11.0))
                 .line_height(px(theme::line::SMALL))
                 .text_color(palette.tertiary)
@@ -4248,7 +4246,7 @@ fn phrase_reference(palette: &theme::Palette, rows: &[(&'static str, &'static st
                 .gap(px(theme::space::MD))
                 .child(
                     div()
-                        .font_family(theme::mono_font())
+                        .font_family(theme::text_font())
                         .text_size(px(theme::type_size::META))
                         .line_height(px(theme::line::META))
                         .text_color(palette.text)
@@ -4419,7 +4417,7 @@ fn model_option(
                 )
                 .child(
                     div()
-                        .font_family(theme::mono_font())
+                        .font_family(theme::text_font())
                         .text_size(px(theme::type_size::META))
                         .line_height(px(theme::line::META))
                         .text_color(palette.tertiary)
@@ -4587,7 +4585,7 @@ fn metric(palette: &theme::Palette, label: &str, value: &str) -> Div {
         )
         .child(
             div()
-                .font_family(theme::mono_font())
+                .font_family(theme::text_font())
                 .text_size(px(theme::type_size::BODY))
                 .line_height(px(theme::line::BODY))
                 .text_color(palette.text)
