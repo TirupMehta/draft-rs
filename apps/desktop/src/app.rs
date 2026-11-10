@@ -353,6 +353,10 @@ impl DraftApp {
             backend,
         });
         let (clipboard_sender, clipboard_notices) = channel();
+        // Measured off the UI thread, once; the picker reads it when opened.
+        std::thread::spawn(|| {
+            let _ = RECOMMENDED_MODEL.set(worker::recommended_for_this_pc().id);
+        });
         let hotkey_label = hotkey.name().to_owned();
         let tray = match tray::build(&hotkey_label) {
             Ok(tray) => Some(tray),
@@ -3323,27 +3327,26 @@ impl DraftApp {
         };
         let path = self.model.display().to_string();
         let current_id = self.settings.model_id.clone();
+        let recommended = RECOMMENDED_MODEL.get().copied();
+        let models_dir = draft_core::paths::models_dir();
         let mut choices = Vec::new();
         for (index, spec) in draft_core::models::CATALOG.iter().enumerate() {
-            let key: &'static str = [
-                "chip:model:0",
-                "chip:model:1",
-                "chip:model:2",
-                "chip:model:3",
-                "chip:model:4",
-            ][index.min(4)];
             let selected = self.settings.model.is_none() && current_id.as_deref() == Some(spec.id);
-            let label = format!(
-                "{} {} · {}",
-                spec.name.replace("Whisper ", ""),
-                spec.quantization,
-                model_size_label(spec.size)
-            );
+            let installed = draft_core::models::state(spec, &models_dir)
+                .map(|state| state.is_installed())
+                .unwrap_or(false);
             let id = spec.id;
             choices.push(
-                self.chip(&app, palette, key, label, selected)
-                    .on_click(cx.listener(move |this, _, _, cx| this.switch_model(id, cx)))
-                    .into_any_element(),
+                model_option(
+                    palette,
+                    index,
+                    spec,
+                    selected,
+                    installed,
+                    recommended == Some(spec.id),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.switch_model(id, cx)))
+                .into_any_element(),
             );
         }
 
@@ -3351,8 +3354,8 @@ impl DraftApp {
             setting_block(
                 palette,
                 "Speed and accuracy",
-                "Draft picked the model that suits this PC. A larger model is more accurate but needs a stronger graphics card; a smaller one is faster on older PCs. A model downloads once the first time you choose it.",
-                div().flex().flex_wrap().gap(px(theme::space::SM)).children(choices),
+                "Bigger models are more accurate and want a stronger graphics card. Smaller ones are quicker on older PCs. Pick any of them: a model downloads once, the first time you choose it. English models understand English only.",
+                div().flex().flex_col().gap(px(6.0)).children(choices),
             )
             .into_any_element(),
             setting_row(
@@ -4096,6 +4099,146 @@ fn phrase_reference(palette: &theme::Palette, rows: &[(&'static str, &'static st
 }
 
 /// A label and its explanation, with the control on the right.
+/// The model Draft would pick for this PC, measured once in the background so
+/// the picker can say so without probing hardware while it draws.
+static RECOMMENDED_MODEL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// One choice on the speed/accuracy ladder: what it is, who it suits, how big
+/// it is, and whether it is already on this PC.
+fn model_option(
+    palette: &theme::Palette,
+    index: usize,
+    spec: &'static draft_core::models::ModelSpec,
+    selected: bool,
+    installed: bool,
+    recommended: bool,
+) -> Stateful<Div> {
+    let profile = draft_core::models::profile(spec);
+    let hover_background = palette.raised_hover;
+    let pill = |text: &'static str, color: Rgba, background: Rgba| {
+        div()
+            .px(px(7.0))
+            .py(px(1.0))
+            .rounded_full()
+            .bg(background)
+            .text_size(px(theme::type_size::META))
+            .line_height(px(theme::line::META))
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .text_color(color)
+            .child(text)
+    };
+    let mut title = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(theme::space::SM))
+        .child(
+            div()
+                .text_size(px(theme::type_size::BODY))
+                .line_height(px(theme::line::BODY))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(palette.text)
+                .child(profile.label),
+        );
+    if recommended {
+        title = title.child(pill(
+            "Recommended for this PC",
+            palette.accent_text,
+            palette.accent_soft,
+        ));
+    }
+    if profile.english_only {
+        title = title.child(pill("English only", palette.secondary, palette.raised));
+    }
+    let (status, status_color) = if selected {
+        ("In use", palette.accent_text)
+    } else if installed {
+        ("On this PC", palette.tertiary)
+    } else {
+        ("Downloads once", palette.tertiary)
+    };
+    let dot = div()
+        .mt(px(5.0))
+        .w(px(10.0))
+        .h(px(10.0))
+        .flex_shrink_0()
+        .rounded_full()
+        .border_1()
+        .border_color(if selected {
+            palette.accent
+        } else {
+            palette.tertiary
+        })
+        .bg(if selected {
+            palette.accent
+        } else {
+            theme::transparent()
+        });
+    div()
+        .id(("model-option", index))
+        .flex()
+        .items_start()
+        .gap(px(theme::space::MD))
+        .px(px(12.0))
+        .py(px(10.0))
+        .rounded_lg()
+        .bg(if selected {
+            palette.accent_soft
+        } else {
+            theme::transparent()
+        })
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover_background))
+        .child(dot)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.0))
+                .gap(px(2.0))
+                .child(title)
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
+                        .text_color(palette.secondary)
+                        .child(profile.summary),
+                )
+                .child(
+                    div()
+                        .font_family(theme::mono_font())
+                        .text_size(px(theme::type_size::META))
+                        .line_height(px(theme::line::META))
+                        .text_color(palette.tertiary)
+                        .child(format!("{} · {}", spec.name, spec.quantization)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .flex_shrink_0()
+                .gap(px(2.0))
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(palette.text)
+                        .child(model_size_label(spec.size)),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::type_size::META))
+                        .line_height(px(theme::line::META))
+                        .text_color(status_color)
+                        .child(status),
+                ),
+        )
+}
+
 fn setting_row(
     palette: &theme::Palette,
     title: &str,

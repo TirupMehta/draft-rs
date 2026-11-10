@@ -51,6 +51,18 @@ impl Default for FormatJob {
     }
 }
 
+/// The catalog entry that suits this machine, from the real hardware probe.
+pub(crate) fn recommended_for_this_pc() -> &'static draft_core::models::ModelSpec {
+    let hardware = draft_engine::detect_hardware();
+    draft_core::models::recommend(&draft_core::models::Capability {
+        discrete_gpu: hardware.discrete_gpu,
+        integrated_gpu: hardware.integrated_gpu,
+        vram_bytes: hardware.vram_bytes,
+        ram_bytes: hardware.ram_bytes,
+        cpu_threads: hardware.cpu_threads,
+    })
+}
+
 #[derive(Debug)]
 pub enum Event {
     Ready {
@@ -158,14 +170,7 @@ fn prepare_model(plan: &StartPlan, events: &Sender<Event>) -> Option<PathBuf> {
             if let Some(spec) = models::CATALOG.iter().find(|spec| installed(spec)) {
                 spec
             } else {
-                let hardware = draft_engine::detect_hardware();
-                models::recommend(&models::Capability {
-                    discrete_gpu: hardware.discrete_gpu,
-                    integrated_gpu: hardware.integrated_gpu,
-                    vram_bytes: hardware.vram_bytes,
-                    ram_bytes: hardware.ram_bytes,
-                    cpu_threads: hardware.cpu_threads,
-                })
+                recommended_for_this_pc()
             }
         }
     };

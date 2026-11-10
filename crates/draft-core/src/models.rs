@@ -89,6 +89,30 @@ pub const WHISPER_SMALL_Q8_0: ModelSpec = ModelSpec {
     sha256: "9b9c8811bbcc82a7766f0fb0925614bdacb0923b2cc630daeac17108b655b860",
 };
 
+/// Whisper small, English only: the same size and speed as the multilingual
+/// small model, trained for one language. Checked on the real JFK clip on both
+/// the Vulkan and CPU backends before it was added.
+pub const WHISPER_SMALL_EN_Q8_0: ModelSpec = ModelSpec {
+    id: "whisper-small-en-q8_0",
+    name: "Whisper Small English",
+    quantization: "Q8_0",
+    file_name: "whisper-small.en-Q8_0.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-small.en-gguf/resolve/main/whisper-small.en-Q8_0.gguf",
+    size: 269_674_144,
+    sha256: "9614e6b7fda2d26018e4f268aece8ca25a83296ea0b534169a585b740bfd71ef",
+};
+
+/// Whisper base, English only: the lightest English option.
+pub const WHISPER_BASE_EN_Q8_0: ModelSpec = ModelSpec {
+    id: "whisper-base-en-q8_0",
+    name: "Whisper Base English",
+    quantization: "Q8_0",
+    file_name: "whisper-base.en-Q8_0.gguf",
+    url: "https://huggingface.co/handy-computer/whisper-base.en-gguf/resolve/main/whisper-base.en-Q8_0.gguf",
+    size: 84_886_208,
+    sha256: "3b46ca40bccbf7609c68d88a36d96077a04ca7c87f2060ede06f129fac3e7652",
+};
+
 /// Whisper base: the lightest option, for old or very small machines.
 pub const WHISPER_BASE_Q8_0: ModelSpec = ModelSpec {
     id: "whisper-base-q8_0",
@@ -109,8 +133,73 @@ pub const CATALOG: &[ModelSpec] = &[
     WHISPER_LARGE_V3_TURBO_Q8_0,
     WHISPER_LARGE_V3_TURBO_Q5_K_M,
     WHISPER_SMALL_Q8_0,
+    WHISPER_SMALL_EN_Q8_0,
     WHISPER_BASE_Q8_0,
+    WHISPER_BASE_EN_Q8_0,
 ];
+
+/// How a model is described to a person choosing one. Words only; every size
+/// shown next to it comes from the pinned artifact, never from this text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Profile {
+    /// The name of the step on the speed/accuracy ladder.
+    pub label: &'static str,
+    /// What it is for, in a sentence.
+    pub summary: &'static str,
+    /// True when the model understands English only.
+    pub english_only: bool,
+}
+
+/// The plain-language description of a catalog entry.
+pub fn profile(spec: &ModelSpec) -> Profile {
+    let (label, summary, english_only) = match spec.id {
+        "whisper-large-v3-turbo-f16" => (
+            "Most accurate",
+            "Full precision. Best results, for a graphics card with about 5 GB of memory.",
+            false,
+        ),
+        "whisper-large-v3-turbo-q8_0" => (
+            "Accurate",
+            "The same large model at about half the size. Suits graphics cards from 3 GB.",
+            false,
+        ),
+        "whisper-large-v3-turbo-q5_k_m" => (
+            "Accurate, compact",
+            "The large model compressed to a third. Suits 2 GB graphics cards and tight memory.",
+            false,
+        ),
+        "whisper-small-q8_0" => (
+            "Balanced",
+            "Quick on most PCs, with or without a graphics card. Understands many languages.",
+            false,
+        ),
+        "whisper-small-en-q8_0" => (
+            "Balanced, English",
+            "Same size and speed as Balanced, built for English only. Usually a little cleaner in English.",
+            true,
+        ),
+        "whisper-base-q8_0" => (
+            "Light",
+            "The smallest multilingual model. For older or slower PCs.",
+            false,
+        ),
+        "whisper-base-en-q8_0" => (
+            "Light, English",
+            "The smallest English model. Fast on almost anything.",
+            true,
+        ),
+        _ => (
+            "Custom",
+            "A model that is not part of Draft's catalog.",
+            false,
+        ),
+    };
+    Profile {
+        label,
+        summary,
+        english_only,
+    }
+}
 
 /// What the machine can do, as far as model choice is concerned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -580,6 +669,32 @@ mod tests {
         assert_eq!(recommend(&cpu_only).id, WHISPER_SMALL_Q8_0.id);
         for spec in CATALOG {
             assert!(find(spec.id).is_some());
+        }
+    }
+
+    #[test]
+    fn every_catalog_entry_is_described_and_unique() {
+        let mut ids = std::collections::HashSet::new();
+        let mut files = std::collections::HashSet::new();
+        for spec in CATALOG {
+            assert!(ids.insert(spec.id), "duplicate id {}", spec.id);
+            assert!(
+                files.insert(spec.file_name),
+                "duplicate file {}",
+                spec.file_name
+            );
+            assert_ne!(profile(spec).label, "Custom", "{} has no profile", spec.id);
+            assert_eq!(spec.sha256.len(), 64, "{} checksum length", spec.id);
+            assert!(
+                spec.url
+                    .starts_with("https://huggingface.co/handy-computer/")
+            );
+            assert_eq!(
+                profile(spec).english_only,
+                spec.id.contains("-en-"),
+                "{} language flag",
+                spec.id
+            );
         }
     }
 

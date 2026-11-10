@@ -434,3 +434,62 @@ impl Engine {
         &self.model_path
     }
 }
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+
+    /// 16 kHz mono 16-bit PCM from a RIFF file, found by chunk walk (the
+    /// fixtures carry a LIST chunk before `data`).
+    fn read_pcm16(bytes: &[u8]) -> Vec<f32> {
+        let mut at = 12;
+        while at + 8 <= bytes.len() {
+            let size = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+            if &bytes[at..at + 4] == b"data" {
+                let end = (at + 8 + size).min(bytes.len());
+                return bytes[at + 8..end]
+                    .chunks_exact(2)
+                    .map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f32 / 32768.0)
+                    .collect();
+            }
+            at += 8 + size + (size & 1);
+        }
+        panic!("no data chunk");
+    }
+
+    /// Run with a real model to prove a catalog entry loads and transcribes:
+    ///
+    /// `DRAFT_TEST_MODEL=<file.gguf> cargo test -p draft-engine -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a real model file in DRAFT_TEST_MODEL"]
+    fn model_transcribes_the_jfk_fixture() {
+        let path = std::env::var("DRAFT_TEST_MODEL").expect("set DRAFT_TEST_MODEL");
+        let backend = match std::env::var("DRAFT_TEST_BACKEND").as_deref() {
+            Ok("cpu") => ComputeBackend::Cpu,
+            _ => ComputeBackend::Auto,
+        };
+        let mut engine = Engine::load(&EngineConfig::new(path).backend(backend)).expect("load");
+        let wav = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../bench/fixtures/real-jfk.wav"
+        ))
+        .expect("fixture");
+        let result = engine
+            .transcribe(&read_pcm16(&wav), &TranscriptionOptions::default())
+            .expect("transcribe");
+        println!(
+            "backend={} device={} language={:?} elapsed={:?}\ntext={}",
+            engine.backend(),
+            engine.device(),
+            result.language,
+            result.elapsed,
+            result.text
+        );
+        let text = result.text.to_lowercase();
+        assert!(
+            text.contains("ask not what your country can do for you"),
+            "unexpected transcript: {}",
+            result.text
+        );
+    }
+}

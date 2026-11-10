@@ -67,6 +67,10 @@ Runtime data lives in `%LOCALAPPDATA%\Draft4` so the shipping v3.5 app's
       progress, verification, atomic install, status, verify, and remove. F16 is
       the default; Q8_0 is the smaller catalog entry.
 - [ ] Parakeet Unified English entry in the same catalog.
+- [x] A seven-step speed/accuracy ladder with plain names in the picker: Large Turbo
+      (F16, Q8, Q5), Small and Small English, Base and Base English. The two
+      English-only entries were verified on the JFK clip on Vulkan and CPU
+      (`DRAFT_TEST_MODEL=<gguf> cargo test --workspace model_transcribes -- --ignored`).
 - [x] Streaming session with partial text; final whole-clip fallback. The
       Windows shell re-transcribes the last ~12 s on the warm model while the key
       is held; previews are display-only and the final pass still uses the whole
