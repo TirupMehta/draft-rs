@@ -414,7 +414,9 @@ a capture. That is the supported way to test the recording state.
   warm model; that is what made laptop fans spin. The final pass always uses
   the complete clip.
 * The release measurement (see `docs/PERFORMANCE.md`): warm p95 of
-  239/234/375/543/1186 ms for 3/5/15/30/60 s of audio, and 264 ms for the JFK
+  239/234/375/543/1186 ms for 3/5/15/30/60 s of audio. Do not headline the
+  3 s figure: short clips carry a fixed ~0.2 s encoder cost, so advertise the
+  60 s result (1.19 s, 2.56x) and the full table, and 264 ms for the JFK
   clip. Real-speech WER parity with v3.5 is still unmeasured and is an open
   release gate.
 * One shadow, on the HUD only, because it floats over other applications.

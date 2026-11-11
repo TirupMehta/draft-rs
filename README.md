@@ -27,8 +27,10 @@ cloud, no account, and no audio leaving the machine.
 
 - **Local by construction.** Whisper large-v3-turbo runs warm on the GPU. Audio
   is never uploaded.
-- **Fast enough to feel instant.** On the reference machine, a 3-second clip
-  finishes in **239 ms p95**; an 11-second JFK recording in **264 ms p95**.
+- **Fast on a GPU.** On the reference machine, about **50× faster than
+  you speak**: a minute of speech is transcribed in 1.19 s p95 (2.56× faster than v3.5); 5 to 15 second
+  clips take under 0.4 s and an 11-second JFK recording **264 ms p95**.
+  Without a GPU, dictation takes seconds. See [Performance](#performance).
 - **One clear gesture.** Six shortcut choices, a real input meter, and no
   modes to learn.
 - **Quiet by default.** One final GPU pass per dictation. Live preview is an
@@ -110,7 +112,9 @@ runs per clip. Decode only, before clipboard paste.
 | 60 s | **1,186 ms** | 3,036 ms | 2.56× |
 | JFK, 11 s | **264 ms** | - | - |
 
-These numbers are a baseline, not a promise for every GPU.
+Short clips carry a fixed cost of roughly 0.2 s (the encoder always processes a
+30-second window), so a 3-second clip is not proportionally faster than a
+5-second one. These numbers are a baseline, not a promise for every GPU.
 
 **Without a GPU**, the same F16 model runs on the CPU. The app asks for three
 quarters of the logical CPUs rather than all of them, which measured 26-40%
