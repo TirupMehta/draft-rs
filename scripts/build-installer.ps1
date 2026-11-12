@@ -10,6 +10,7 @@
 param(
     [switch]$IncludeModel,
     [string]$ModelPath = "",
+    [string]$Suffix = "",
     [string]$Version = ""
 )
 
@@ -55,12 +56,15 @@ if ($IncludeModel) {
     $defines += "/DIncludeModel=1"
     $defines += "/DModelPath=$ModelPath"
 }
+if ($Suffix) {
+    $defines += "/DOutSuffix=$Suffix"
+}
 
 & $iscc /Qp @defines (Join-Path $repo "packaging\windows\draft.iss")
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }
 
-$suffix = if ($IncludeModel) { "-offline" } else { "" }
+$suffix = if ($Suffix) { $Suffix } elseif ($IncludeModel) { "-offline" } else { "" }
 $installer = Join-Path $repo "dist\Draft-Setup-$Version$suffix.exe"
 Get-Item $installer | Select-Object FullName, Length, LastWriteTime

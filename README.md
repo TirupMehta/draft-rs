@@ -1,33 +1,16 @@
-<p align="center">
-  <img src="assets/draft-256.png" alt="Draft" width="96">
-</p>
+# Draft
 
-<h1 align="center">Draft</h1>
+Private, on-device dictation for Windows.
 
-<p align="center">
-  <strong>Private dictation for Windows.</strong><br>
-  Hold a key, speak, release. The words appear at your cursor.<br>
-  The model runs on your machine, so your voice never leaves it.
-</p>
+[![Latest release](https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915)](https://github.com/TirupMehta/draft-rs/releases/latest)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-1b1915?style=flat-square)
+[![License](https://img.shields.io/badge/license-MIT-1b1915?style=flat-square)](LICENSE)
+![Telemetry](https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square)
 
-<p align="center">
-  Whisper large-v3-turbo · Vulkan · Native Rust · Free · MIT · No account · No telemetry
-</p>
-
-<p align="center">
-  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><strong>Download</strong></a> ·
-  <a href="#install">Install</a> ·
-  <a href="#performance">Performance</a> ·
-  <a href="#privacy">Privacy</a> ·
-  <a href="https://x.com/TirupMehta">X</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915"></a>
-  <img alt="Windows 10 and 11 x64" src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-1b1915?style=flat-square">
-  <a href="LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-1b1915?style=flat-square"></a>
-  <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square">
-</p>
+Draft turns speech into text at your cursor. You hold a key, speak, and release;
+the transcript is pasted into whatever you were typing in. Transcription runs
+on your own machine with Whisper, on the GPU when one is available, so your
+audio is never uploaded and there is no account to create.
 
 <p align="center">
 <picture>
@@ -36,74 +19,99 @@
 </picture>
 </p>
 
-## How it works
+## Contents
 
-| 1. Hold | 2. Speak | 3. Release |
-| :---: | :---: | :---: |
-| Press and hold **Right Ctrl** (or another key you pick). | Talk naturally. The pill shows your real input level. | The words are pasted at your cursor. Audio is discarded. |
+- [Overview](#overview)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+- [Screenshots](#screenshots)
+- [Performance](#performance)
+- [Privacy](#privacy)
+- [Status and limitations](#status-and-limitations)
+- [Documentation](#documentation)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Why Draft
-
-- **Private by construction.** Audio is captured only while the key is held,
-  transcribed on this PC, and discarded. Nothing is uploaded, and there is no
-  account, telemetry, or update ping.
-- **Fast on a GPU.** Draft transcribes about **50× faster than you speak**: a
-  minute of speech takes 1.19 s p95 on the reference machine, 2.56× faster than
-  v3.5. Clips of 5 to 15 seconds take under 0.4 s. Without a GPU, dictation
-  takes seconds. See [Performance](#performance).
-- **Your choice of model.** Whisper large-v3-turbo by default, with a seven-step
-  speed and accuracy ladder down to an 85 MB English model. Draft measures your
-  PC and recommends one.
-- **Readable output.** Paragraph breaks at real pauses, spoken commands, and
-  optional lists. Formatting never changes a word.
-- **One clear gesture.** Six shortcut choices, a real input meter, and no
-  modes to learn.
-- **A real Windows app.** A fixed, GPU-rendered window, a click-through
-  recording HUD, a tray icon, and a per-user installer with no administrator
-  prompt.
-- **Honest.** The interface shows the real model state, the real input level,
-  and the real latency. Nothing is simulated.
-
-## Install
+## Overview
 
 | | |
 | --- | --- |
-| **System** | Windows 10 or 11, x64 with AVX2 (any PC from 2013 on) |
-| **Graphics** | Any Vulkan GPU for the fast path; otherwise it runs on the CPU, slower |
-| **Disk** | 11 MB installer, plus the model it downloads once (85 MB to 1.6 GB) |
-| **Cost** | Free, MIT licensed, no account |
+| **Local** | Whisper large-v3-turbo runs on your PC. Audio is captured only while the key is held, then discarded. |
+| **Fast** | About 50× faster than you speak on a GPU: a minute of speech in 1.19 s (p95). See [Performance](#performance). |
+| **Configurable** | A seven-step model ladder from 85 MB to 1.6 GB. Draft measures your PC and recommends a step. |
+| **Readable** | Paragraph breaks at real pauses, spoken commands, optional lists. Formatting never changes a word. |
+| **Native** | A Rust and GPUI app with a tray icon, a click-through recording HUD, and a per-user installer that needs no administrator rights. |
+| **Open** | MIT licensed. No telemetry, analytics, crash reporting, or update ping. |
 
-**Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
-baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
+## Quick start
 
-1. Download `Draft-Setup-0.5.1.exe` from
-   [Releases](https://github.com/TirupMehta/draft-rs/releases/latest). Choose
-   `Draft-Setup-0.5.1-offline.exe` (1.43 GB) only if you want no first-run
-   download.
-2. Run the installer. It installs for the current user under
+### Requirements
+
+| | |
+| --- | --- |
+| **OS** | Windows 10 or 11, x64, with AVX2 (any PC from 2013 on) |
+| **Graphics** | Any Vulkan GPU for the fast path. Without one, Draft runs on the CPU and is slower. |
+| **Disk** | The installer, plus the speech model (85 MB to 1.6 GB) |
+
+### Install
+
+Download an installer from the [latest release](https://github.com/TirupMehta/draft-rs/releases/latest):
+
+| Installer | Size | Model | Use it when |
+| --- | --- | --- | --- |
+| `Draft-Setup-0.5.1.exe` **(recommended)** | 11 MB | Downloaded on first launch, chosen for your PC | You are online. This is the right choice for almost everyone. |
+| `Draft-Setup-0.5.1-offline-small.exe` | 257 MB | Whisper Small, included | You are offline and have an older PC or no GPU. |
+| `Draft-Setup-0.5.1-offline.exe` | 1.43 GB | Whisper large-v3-turbo, included | You are offline and have a capable GPU. |
+
+1. Run the installer. It installs for the current user under
    `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
-3. On first launch Draft picks a model for your PC and downloads it once, with
-   a progress bar. The offline installer already includes the large model.
-4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
-
-**To remove it:** Start menu → Draft → **Uninstall Draft**. That one entry
-removes the app, its shortcuts, and its license files. Your settings, history,
-and the speech model in `%LOCALAPPDATA%\Draft4` are kept, so reinstalling does
-not download the model again. Delete that folder by hand if you want a clean
-slate.
+2. On first launch, the standard installer measures your PC, picks a model, and
+   downloads it once with a progress bar. The offline installers already
+   include theirs.
+3. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
 
 The installer is **not code-signed yet**, so Windows SmartScreen may show a
-warning on first run. You can verify the download against the release notes, or
-build from source.
+warning on first run: choose **More info**, then **Run anyway**. Each installer
+has a `.sha256` file on the release page; verify the download first:
 
-**Apple Silicon macOS, preview.** Download `Draft-0.2.0-macos-arm64.dmg` from
-the [macOS prerelease](https://github.com/TirupMehta/draft-rs/releases/tag/v0.2.0-macos.1).
-It is ad-hoc signed, not notarized, so macOS blocks the first launch; the
-release notes list the exact steps. The DMG carries the F16 model. The app is a
-preview: it builds and links on Apple hardware, but no one has dictated on a
-physical Mac yet.
+```powershell
+Get-FileHash .\Draft-Setup-0.5.1.exe -Algorithm SHA256
+```
 
-## A look inside
+### Uninstall
+
+Start menu → Draft → **Uninstall Draft**. This removes the app, its shortcuts,
+and its license files. Your settings, history, and speech model in
+`%LOCALAPPDATA%\Draft4` are kept so a reinstall does not download the model
+again. Delete that folder by hand for a clean slate.
+
+### macOS (Apple Silicon preview)
+
+Download `Draft-0.2.0-macos-arm64.dmg` from the
+[macOS prerelease](https://github.com/TirupMehta/draft-rs/releases/tag/v0.2.0-macos.1).
+It is ad-hoc signed and not notarized, so macOS blocks the first launch; the
+release notes list the exact steps. It is a preview: it builds and links on
+Apple hardware, but no one has dictated on a physical Mac yet.
+
+## Usage
+
+Hold **Right Ctrl** (or Right Alt, F8, F9, Pause, or Scroll Lock), speak, and
+release. The transcript is pasted at the cursor. Press **Esc** while recording
+to cancel the take.
+
+| Feature | Behaviour |
+| --- | --- |
+| Live preview | Off by default (Settings → Dictation). The final transcript always comes from the complete clip. |
+| Formatting | A paragraph break at a real pause, measured against your own rhythm. Nothing is rewritten, added, or reordered. |
+| Spoken commands | Say `new paragraph`, `new line`, or `scratch that` as its own phrase, with a pause on each side. Ordinary speech containing those words is left alone. |
+| History | The newest dictations with copy and delete. Text and duration only, never audio, window titles, or full URLs. `draftctl history` searches all of it. |
+| Models | Seven steps from an 85 MB English model to the 1.6 GB large model, downloaded once with a resumable, SHA-256-verified install. |
+| Microphone | A picker with a level check, and automatic fallback to the system default when a saved device disappears. |
+| Tray | Show, Hide, Paste last, and Quit. Draft starts in the tray at sign-in by default; you can turn that off. |
+| Theme | Light by default, with a designed dark theme. Every view shares one fixed 680×500 surface. |
+
+## Screenshots
 
 | History | Recognition |
 | --- | --- |
@@ -125,36 +133,6 @@ model works. Light and dark follow your theme:
 </p>
 
 <p align="center"><sub>Illustration of the four HUD states. The words in the live preview row are an example.</sub></p>
-
-## What works today
-
-- Hold **Right Ctrl** (or Right Alt, F8, F9, Pause, or Scroll Lock), speak,
-  release, and the transcript is pasted at the cursor. Press **Esc** while
-  recording to cancel.
-- **Live preview** (Settings → Dictation) is off by default; the final
-  transcript always comes from the complete clip.
-- **Formatting** turns a finished transcript into readable text: a paragraph
-  break at a real pause, measured against your own rhythm. Nothing is
-  rewritten, added, or reordered.
-- **Spoken commands**: say `new paragraph`, `new line`, or `scratch that` as its
-  own phrase, with a pause on each side. Ordinary speech containing those words
-  is left alone.
-- **History tab**: the newest dictations with copy and delete, and a two-click
-  delete all. Text and duration only, never audio, window titles, or full URLs;
-  `draftctl history` searches all of it.
-- **Model ladder**: seven steps from an 85 MB English model to the full 1.6 GB
-  large model, downloaded once with a resumable, SHA-256-verified install.
-- The model loads once and stays warm. Vulkan is the shipping path, with a CPU
-  fallback when no GPU backend is available.
-- Light by default, with a designed dark theme. Dictate, History, and Settings
-  share one fixed 680×500 surface, so nothing resizes or jumps.
-- A microphone picker with a level check and automatic fallback to the system
-  default when a saved device disappears.
-- Tray actions for Show, Hide, Paste last, and Quit. Draft starts in the tray at
-  sign-in by default; you can turn that off.
-- A per-user installer to `%LOCALAPPDATA%\Programs\Draft` with a Start-menu
-  **Uninstall Draft**. Uninstall keeps your settings, history, and model in
-  `%LOCALAPPDATA%\Draft4` so a reinstall does not start over.
 
 ## Performance
 
@@ -196,7 +174,7 @@ Draft is built to be private without asking you to trust a policy.
 - The one network exception is the speech model. The standard installer is
   small and downloads the model you choose once, on first launch, from the
   pinned Hugging Face source (85 MB to 1.6 GB), verified against a pinned
-  SHA-256. The `-offline` installer bundles the large model instead. After the
+  SHA-256. The offline installers bundle a model instead. After the
   model is on your PC, dictation needs no network.
 - There is no telemetry, analytics, crash reporting, or update ping.
 - The GitHub and X actions on the Credits page open your browser only when you
@@ -218,7 +196,19 @@ Draft 0.5.1 is an early Windows release.
   next release gate, and no accuracy claim is made ahead of it.
 - Updates are manual; there is no in-app updater.
 
-## For developers
+## Documentation
+
+| Document | Contents |
+| --- | --- |
+| [docs/SPEC.md](docs/SPEC.md) | Product intent and scope |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmark method, CPU and GPU tables, raw reports |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Open work and release gates |
+| [docs/MACOS.md](docs/MACOS.md) | macOS status and what is verified |
+| [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md) | Signing plan for the Windows installer |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, design rules, required checks |
+| [CREDITS.md](CREDITS.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Attribution and dependency licenses |
+
+## Development
 
 <details>
 <summary><b>Build from source</b></summary>
@@ -297,17 +287,6 @@ type crosses into the core.
 
 </details>
 
-## Credits
-
-Draft is designed and built by [Tirup Mehta](https://github.com/TirupMehta).
-It is built on **GPUI** by Zed Industries (Apache-2.0), **transcribe.cpp**
-(MIT), **Whisper large-v3-turbo** by OpenAI in a GGUF build by handy-computer,
-**Instrument Sans** and **Instrument Serif** (OFL 1.1). The full list is in [CREDITS.md](CREDITS.md), and every Rust
-dependency is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-The Credits section is also available in the app, under Settings → Credits,
-with links to GitHub and X and a button that opens the installed license files.
-
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. It covers the
@@ -319,3 +298,14 @@ Draft is released under the [MIT License](LICENSE). The bundled typefaces are
 under the SIL Open Font License 1.1. The speech model is distributed with
 Draft and is subject to its own terms. See [NOTICE](NOTICE),
 [CREDITS.md](CREDITS.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Credits
+
+Draft is designed and built by [Tirup Mehta](https://github.com/TirupMehta).
+It is built on **GPUI** by Zed Industries (Apache-2.0), **transcribe.cpp**
+(MIT), **Whisper large-v3-turbo** by OpenAI in a GGUF build by handy-computer,
+**Instrument Sans** and **Instrument Serif** (OFL 1.1). The full list is in [CREDITS.md](CREDITS.md), and every Rust
+dependency is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The Credits section is also available in the app, under Settings → Credits,
+with links to GitHub and X and a button that opens the installed license files.

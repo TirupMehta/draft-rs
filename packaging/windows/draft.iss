@@ -18,10 +18,13 @@
   #define RepoRoot "..\.."
 #endif
 
-#ifdef IncludeModel
-  #define OutSuffix "-offline"
-#else
-  #define OutSuffix ""
+; A caller may name the edition itself, for example -offline-small.
+#ifndef OutSuffix
+  #ifdef IncludeModel
+    #define OutSuffix "-offline"
+  #else
+    #define OutSuffix ""
+  #endif
 #endif
 
 [Setup]
