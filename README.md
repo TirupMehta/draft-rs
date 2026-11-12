@@ -55,6 +55,10 @@ and is slower.
 > `.sha256` file on the release page to check it against:
 > `Get-FileHash .\Draft-Setup-<version>.exe -Algorithm SHA256`
 
+For a silent or scripted install, run the installer with
+`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`. It installs for the current user
+and needs no administrator rights.
+
 To uninstall, use **Uninstall Draft** in the Start menu. Your settings, history,
 and model in `%LOCALAPPDATA%\Draft4` are kept, so a reinstall does not download
 the model again.
