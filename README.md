@@ -1,82 +1,101 @@
-# Draft
+<p align="center">
+  <img src="assets/draft-256.png" alt="Draft" width="96">
+</p>
 
-**Private dictation for Windows.** Hold a key, speak, release - the words appear
-at your cursor. The model runs on your machine.
+<h1 align="center">Draft</h1>
 
-Local Whisper large-v3-turbo · Vulkan · Native Rust · No account · No telemetry
+<p align="center">
+  <strong>Private dictation for Windows.</strong><br>
+  Hold a key, speak, release. The words appear at your cursor.<br>
+  The model runs on your machine, so your voice never leaves it.
+</p>
 
-[Download](#install) · [Project](https://github.com/TirupMehta/draft-rs) ·
-[GitHub](https://github.com/TirupMehta) · [X](https://x.com/TirupMehta)
+<p align="center">
+  Whisper large-v3-turbo · Vulkan · Native Rust · Free · MIT · No account · No telemetry
+</p>
 
-![Draft, ready to dictate](docs/screenshots/ready.png)
+<p align="center">
+  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><strong>Download</strong></a> ·
+  <a href="#install">Install</a> ·
+  <a href="#performance">Performance</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="https://x.com/TirupMehta">X</a>
+</p>
 
-Draft is a native Windows dictation app built around a simple loop: hold the
-key, speak naturally, and release. The audio is captured only while the key is
-held, transcribed locally, pasted at the cursor, and discarded. There is no
-cloud, no account, and no audio leaving the machine.
-
-| Listening | Settings |
-| --- | --- |
-| ![Listening](docs/screenshots/listening.png) | ![Settings](docs/screenshots/settings.png) |
-
-| Credits | Recording HUD |
-| --- | --- |
-| ![Credits](docs/screenshots/credits.png) | ![Recording HUD](docs/screenshots/hud.png) |
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dictate-dark.png">
+  <img src="docs/screenshots/dictate.png" alt="Draft, ready to dictate" width="680">
+</picture>
+</p>
 
 ## Why Draft
 
-- **Local by construction.** Whisper large-v3-turbo runs warm on the GPU. Audio
-  is never uploaded.
-- **Fast on a GPU.** On the reference machine, about **50× faster than
-  you speak**: a minute of speech is transcribed in 1.19 s p95 (2.56× faster than v3.5); 5 to 15 second
-  clips take under 0.4 s and an 11-second JFK recording **264 ms p95**.
-  Without a GPU, dictation takes seconds. See [Performance](#performance).
+- **Private by construction.** Audio is captured only while the key is held,
+  transcribed on this PC, and discarded. Nothing is uploaded, and there is no
+  account, telemetry, or update ping.
+- **Fast on a GPU.** Draft transcribes about **50× faster than you speak**: a
+  minute of speech takes 1.19 s p95 on the reference machine, 2.56× faster than
+  v3.5. Clips of 5 to 15 seconds take under 0.4 s. Without a GPU, dictation
+  takes seconds. See [Performance](#performance).
+- **Your choice of model.** Whisper large-v3-turbo by default, with a seven-step
+  speed and accuracy ladder down to an 85 MB English model. Draft measures your
+  PC and recommends one.
+- **Readable output.** Paragraph breaks at real pauses, spoken commands, and
+  optional lists. Formatting never changes a word.
 - **One clear gesture.** Six shortcut choices, a real input meter, and no
   modes to learn.
-- **Quiet by default.** One final GPU pass per dictation. Live preview is an
-  explicit opt-in because each preview is another full pass.
-- **A real Windows app.** A fixed, GPU-rendered surface, a click-through
+- **A real Windows app.** A fixed, GPU-rendered window, a click-through
   recording HUD, a tray icon, and a per-user installer with no administrator
   prompt.
 - **Honest.** The interface shows the real model state, the real input level,
   and the real latency. Nothing is simulated.
 
+## A look inside
+
+| History | Recognition |
+| --- | --- |
+| <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/history-dark.png">   <img src="docs/screenshots/history.png" alt="History tab"> </picture> | <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/recognition-dark.png">   <img src="docs/screenshots/recognition.png" alt="Recognition settings"> </picture> |
+| Your newest dictations, text and duration only. Copy or delete any of them. | Pick a model, or let Draft recommend one for your PC. |
+
+| Formatting | Privacy |
+| --- | --- |
+| <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/formatting-dark.png">   <img src="docs/screenshots/formatting.png" alt="Formatting settings"> </picture> | <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/privacy-dark.png">   <img src="docs/screenshots/privacy.png" alt="Privacy settings"> </picture> |
+| Paragraphs at real pauses, spoken commands, optional lists. | What happens to one dictation, and where your data lives. |
+
+The recording HUD floats over whatever you are typing into and never takes focus:
+
+![Recording HUD](docs/screenshots/hud.png)
+
 ## What works today
 
 - Hold **Right Ctrl** (or Right Alt, F8, F9, Pause, or Scroll Lock), speak,
-  release, and the transcript is pasted at the cursor.
-- Press **Esc** while recording to cancel the take.
-- **Live preview** is available under Settings → Dictation. It is off by
-  default; the final transcript always comes from the complete clip.
+  release, and the transcript is pasted at the cursor. Press **Esc** while
+  recording to cancel.
+- **Live preview** (Settings → Dictation) is off by default; the final
+  transcript always comes from the complete clip.
 - **Formatting** turns a finished transcript into readable text: a paragraph
-  break at a real pause, measured against your own rhythm and learned from your
-  dictations on this device. Nothing is rewritten, added, or reordered.
-- **Spoken commands** in Settings → Formatting: say `new paragraph`, `new line`,
-  or `scratch that` as its own phrase, with a pause on each side. Ordinary
-  speech that happens to contain those words is left alone.
+  break at a real pause, measured against your own rhythm. Nothing is
+  rewritten, added, or reordered.
+- **Spoken commands**: say `new paragraph`, `new line`, or `scratch that` as its
+  own phrase, with a pause on each side. Ordinary speech containing those words
+  is left alone.
+- **History tab**: the newest dictations with copy and delete, and a two-click
+  delete all. Text and duration only, never audio, window titles, or full URLs;
+  `draftctl history` searches all of it.
+- **Model ladder**: seven steps from an 85 MB English model to the full 1.6 GB
+  large model, downloaded once with a resumable, SHA-256-verified install.
 - The model loads once and stays warm. Vulkan is the shipping path, with a CPU
-  fallback when a GPU backend is unavailable.
-- A one-window interface: Dictate and Settings share the same 680×500 surface,
-  so nothing resizes or jumps. Light is the default theme; dark is a designed
-  second theme.
-- A click-through recording HUD with a real input meter, elapsed time, and an
-  honest Listening / Transcribing state.
-- A microphone picker with a four-second level check and automatic fallback to
-  the system default when a saved device disappears.
-- Tray actions for Show, Hide, Paste last, and Quit. Draft starts in the tray
-  at sign-in by default; the setting can be turned off.
-- Bounded local history: text and duration only, never audio, window titles, or
-  full URLs. The History tab lists the newest 50 with copy, delete, and a
-  two-click delete all; `draftctl history` searches all of them.
-- A seven-step speed/accuracy ladder, from an 85 MB English model to the full
-  1.6 GB large model. Draft measures your PC, recommends one, and downloads it
-  once with a resumable, SHA-256-verified, atomic install. You can pick any
-  other step in Settings > Recognition.
-- A per-user Windows installer that installs to `%LOCALAPPDATA%\Programs\Draft`,
-  puts Draft and **Uninstall Draft** in one Start-menu folder, and offers an
-  optional desktop shortcut. Uninstall removes the app and its license files;
-  settings, history, and the model in `%LOCALAPPDATA%\Draft4` are kept so a
-  reinstall does not start over.
+  fallback when no GPU backend is available.
+- Light by default, with a designed dark theme. Dictate, History, and Settings
+  share one fixed 680×500 surface, so nothing resizes or jumps.
+- A microphone picker with a level check and automatic fallback to the system
+  default when a saved device disappears.
+- Tray actions for Show, Hide, Paste last, and Quit. Draft starts in the tray at
+  sign-in by default; you can turn that off.
+- A per-user installer to `%LOCALAPPDATA%\Programs\Draft` with a Start-menu
+  **Uninstall Draft**. Uninstall keeps your settings, history, and model in
+  `%LOCALAPPDATA%\Draft4` so a reinstall does not start over.
 
 ## Privacy
 
@@ -229,7 +248,7 @@ type crosses into the core.
 
 ## Status and limitations
 
-Draft 0.3.1 is an early Windows release.
+Draft 0.5.0 is an early Windows release.
 
 - Windows x64 is the supported release. An Apple Silicon macOS preview is
   available as an ad-hoc-signed DMG: it builds and links the Metal engine on the
@@ -239,8 +258,6 @@ Draft 0.3.1 is an early Windows release.
   supported release. [docs/MACOS.md](docs/MACOS.md) lists what is and is not
   verified. Linux is not planned.
 - The installer is unsigned.
-- The History pane is not built; the bounded store and `draftctl history` are
-  available.
 - Real-speech WER parity with Draft v3.5 is still being measured. It is the
   next release gate, and no accuracy claim is made ahead of it.
 - Updates are manual; there is no in-app updater.
