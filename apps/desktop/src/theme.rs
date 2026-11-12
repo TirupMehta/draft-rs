@@ -12,7 +12,7 @@
 //! * Dark is the designed second theme, not an inversion: warm graphite,
 //!   lifted surfaces, the same structure and the same restraint.
 
-use gpui::{Rgba, px, rgb, rgba};
+use gpui::{Rgba, rgb, rgba};
 
 /// How the interface chooses its palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,15 +302,4 @@ pub fn timer_digits(text: &str, size: f32, line: f32, color: Rgba) -> gpui::Div 
                 .justify_center()
                 .child(ch.to_string())
         }))
-}
-
-/// The HUD floats over other applications, so it gets one soft shadow to lift
-/// it off whatever is behind it. It is the only shadow in the product.
-pub fn hud_shadow() -> Vec<gpui::BoxShadow> {
-    vec![gpui::BoxShadow {
-        color: gpui::hsla(0.0, 0.0, 0.0, 0.42),
-        offset: gpui::point(px(0.0), px(10.0)),
-        blur_radius: px(26.0),
-        spread_radius: px(-8.0),
-    }]
 }

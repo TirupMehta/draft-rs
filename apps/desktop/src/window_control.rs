@@ -113,6 +113,49 @@ pub fn configure_hud(hwnd: isize) {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         );
+        remove_frame_decoration(hwnd);
+    }
+}
+
+/// Windows draws a frame around every top-level window: a 1 px border, rounded
+/// corners on Windows 11, and a drop shadow. The HUD is a transparent canvas
+/// with its own pill drawn inside, so that frame shows up as a stray rectangle
+/// around it. Ask DWM for none of it. The border and corner calls are ignored
+/// on Windows 10.
+#[cfg(target_os = "windows")]
+unsafe fn remove_frame_decoration(hwnd: *mut std::ffi::c_void) {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+    // DWMWA_BORDER_COLOR = 34, DWMWA_COLOR_NONE = 0xFFFFFFFE.
+    // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1.
+    const BORDER_COLOR: u32 = 34;
+    const COLOR_NONE: u32 = 0xFFFF_FFFE;
+    const CORNER_PREFERENCE: u32 = 33;
+    const DO_NOT_ROUND: u32 = 1;
+    // DWMWA_NCRENDERING_POLICY = 2, DWMNCRP_DISABLED = 1. Without non-client
+    // rendering DWM also stops drawing the window's drop shadow, which is the
+    // dark halo that otherwise outlines the whole 600x84 canvas.
+    const NC_RENDERING_POLICY: u32 = 2;
+    const NC_RENDERING_DISABLED: u32 = 1;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            NC_RENDERING_POLICY,
+            &NC_RENDERING_DISABLED as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            BORDER_COLOR,
+            &COLOR_NONE as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            CORNER_PREFERENCE,
+            &DO_NOT_ROUND as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
     }
 }
 

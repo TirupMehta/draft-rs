@@ -245,7 +245,6 @@ impl Render for DraftHud {
                     .bg(palette.surface)
                     .border_1()
                     .border_color(palette.hairline_strong)
-                    .shadow(theme::hud_shadow())
                     .child(content),
             )
     }
