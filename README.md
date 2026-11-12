@@ -65,10 +65,14 @@
 
 The recording HUD is one small pill that floats over whatever you are typing
 into and never takes focus: a dot, a live meter, and the length of the take.
+It widens only when live preview is on, and shows "Transcribing" while the
+model works. Light and dark follow your theme:
 
 <p align="center">
-  <img src="docs/screenshots/hud.png" alt="Recording HUD" width="214">
+  <img src="docs/screenshots/hud-states.png" alt="The recording HUD in its four states, in light and dark: just pressed, speaking, speaking with live preview, and transcribing" width="560">
 </p>
+
+<p align="center"><sub>Illustration of the four HUD states. The words in the live preview row are an example.</sub></p>
 
 ## What works today
 
