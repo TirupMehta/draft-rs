@@ -11,11 +11,13 @@ use gpui::{Context, IntoElement, Render, Window, div, prelude::*, px};
 
 use crate::theme;
 
-/// Sixteen 2 px bars with 3 px gutters fill the meter.
-const METER_WIDTH: f32 = 77.0;
-const METER_HEIGHT: f32 = 30.0;
+/// Sixteen 3 px bars with 3 px gutters fill the meter.
+const METER_BARS: usize = 16;
+const BAR_WIDTH: f32 = 3.0;
+const METER_WIDTH: f32 = 93.0;
+const METER_HEIGHT: f32 = 28.0;
 /// Newest characters of a rolling preview that fit the detail line.
-const PREVIEW_CHARS: usize = 54;
+const PREVIEW_CHARS: usize = 46;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HudTone {
@@ -100,21 +102,23 @@ impl Render for DraftHud {
         let palette = snapshot.palette;
         let listening = snapshot.tone == HudTone::Listening;
 
-        // A quiet take shows one flat line. Bars only appear when the meter has
-        // something real to show, so the HUD never animates on silence.
+        // A quiet take shows a resting row of dots. Bars only appear when the
+        // meter has something real to show, so the HUD never animates on
+        // silence. Bars grow from the centre line so the meter reads as a
+        // waveform rather than a bar chart.
         let quiet = snapshot.bars.iter().all(|bar| *bar < 0.04);
         let meter = if listening && !quiet {
             div()
                 .w(px(METER_WIDTH))
                 .h(px(METER_HEIGHT))
                 .flex()
-                .items_end()
+                .items_center()
                 .justify_between()
                 .children(snapshot.bars.iter().map(|bar| {
                     let weight = bar.clamp(0.0, 1.0);
                     div()
-                        .w(px(2.0))
-                        .h(px(3.0 + weight * (METER_HEIGHT - 4.0)))
+                        .w(px(BAR_WIDTH))
+                        .h(px(4.0 + weight * (METER_HEIGHT - 4.0)))
                         .rounded_full()
                         .bg(theme::mix(palette.track, palette.accent, weight.powf(0.6)))
                 }))
@@ -124,8 +128,15 @@ impl Render for DraftHud {
                 .w(px(METER_WIDTH))
                 .h(px(METER_HEIGHT))
                 .flex()
-                .items_end()
-                .child(div().w_full().h(px(2.0)).rounded_full().bg(palette.track))
+                .items_center()
+                .justify_between()
+                .children((0..METER_BARS).map(|_| {
+                    div()
+                        .w(px(BAR_WIDTH))
+                        .h(px(BAR_WIDTH))
+                        .rounded_full()
+                        .bg(palette.track)
+                }))
                 .into_any_element()
         };
 
@@ -136,21 +147,24 @@ impl Render for DraftHud {
             .map(|text| (clip_tail(text, PREVIEW_CHARS), palette.text))
             .unwrap_or_else(|| (snapshot.detail.clone(), palette.secondary));
 
-        // The right edge carries the take length above the cancel key. While
+        // The right edge carries the take length beside the cancel key. While
         // the model works there is no key to press, so the dots take that
-        // place and the card stays balanced.
+        // place and the pill stays balanced.
         let trailing = if listening {
             div()
                 .flex()
-                .flex_col()
-                .items_end()
-                .gap(px(6.0))
+                .items_center()
+                .gap(px(10.0))
                 .child(
                     div()
+                        .w(px(46.0))
+                        .flex()
+                        .justify_end()
                         .font_family(theme::text_font())
-                        .text_size(px(theme::type_size::META))
-                        .line_height(px(15.0))
-                        .text_color(palette.tertiary)
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
+                        .text_color(palette.text)
                         .child(
                             snapshot
                                 .elapsed
@@ -160,8 +174,8 @@ impl Render for DraftHud {
                 )
                 .child(
                     div()
-                        .w(px(34.0))
-                        .h(px(20.0))
+                        .w(px(36.0))
+                        .h(px(22.0))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -170,6 +184,7 @@ impl Render for DraftHud {
                         .border_1()
                         .border_color(palette.hairline)
                         .font_family(theme::text_font())
+                        .font_weight(gpui::FontWeight::MEDIUM)
                         .text_size(px(10.0))
                         .line_height(px(12.0))
                         .text_color(palette.secondary)
@@ -180,10 +195,10 @@ impl Render for DraftHud {
             div()
                 .flex()
                 .items_center()
-                .gap(px(3.0))
+                .gap(px(4.0))
                 .children((0..3).map(|index| {
                     let lit = index == usize::from(snapshot.beat % 3);
-                    div().w(px(4.0)).h(px(4.0)).rounded_full().bg(if lit {
+                    div().w(px(6.0)).h(px(6.0)).rounded_full().bg(if lit {
                         palette.accent_text
                     } else {
                         palette.track
@@ -192,9 +207,9 @@ impl Render for DraftHud {
                 .into_any_element()
         };
 
-        // The card tightens when the microphone closes, so the working state
+        // The pill tightens when the microphone closes, so the working state
         // never looks like a wide panel with two short lines in it.
-        let width = if listening { 560.0 } else { 460.0 };
+        let width = if listening { 540.0 } else { 400.0 };
 
         div()
             .size_full()
@@ -206,20 +221,20 @@ impl Render for DraftHud {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.0))
+                    .gap(px(14.0))
                     .w(px(width))
-                    .h(px(64.0))
-                    .pl(px(14.0))
-                    .pr(px(12.0))
-                    .rounded_lg()
+                    .h(px(56.0))
+                    .pl(px(22.0))
+                    .pr(px(14.0))
+                    .rounded_full()
                     .bg(palette.surface)
                     .border_1()
                     .border_color(palette.hairline_strong)
                     .shadow(theme::hud_shadow())
                     .child(
                         div()
-                            .w(px(2.0))
-                            .h(px(20.0))
+                            .w(px(10.0))
+                            .h(px(10.0))
                             .rounded_full()
                             .bg(if listening {
                                 palette.accent
@@ -234,11 +249,11 @@ impl Render for DraftHud {
                             .flex_col()
                             .flex_1()
                             .min_w(px(0.0))
-                            .gap(px(3.0))
+                            .gap(px(2.0))
                             .child(
                                 div()
-                                    .text_size(px(theme::type_size::META))
-                                    .line_height(px(14.0))
+                                    .text_size(px(11.0))
+                                    .line_height(px(13.0))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(if listening {
                                         palette.accent_text
