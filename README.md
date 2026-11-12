@@ -23,11 +23,24 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915"></a>
+  <img alt="Windows 10 and 11 x64" src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-1b1915?style=flat-square">
+  <a href="LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-1b1915?style=flat-square"></a>
+  <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square">
+</p>
+
+<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dictate-dark.png">
   <img src="docs/screenshots/dictate.png" alt="Draft, ready to dictate" width="680">
 </picture>
 </p>
+
+## How it works
+
+| 1. Hold | 2. Speak | 3. Release |
+| :---: | :---: | :---: |
+| Press and hold **Right Ctrl** (or another key you pick). | Talk naturally. The pill shows your real input level. | The words are pasted at your cursor. Audio is discarded. |
 
 ## Why Draft
 
@@ -50,6 +63,45 @@
   prompt.
 - **Honest.** The interface shows the real model state, the real input level,
   and the real latency. Nothing is simulated.
+
+## Install
+
+| | |
+| --- | --- |
+| **System** | Windows 10 or 11, x64 with AVX2 (any PC from 2013 on) |
+| **Graphics** | Any Vulkan GPU for the fast path; otherwise it runs on the CPU, slower |
+| **Disk** | 11 MB installer, plus the model it downloads once (85 MB to 1.6 GB) |
+| **Cost** | Free, MIT licensed, no account |
+
+**Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
+baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
+
+1. Download `Draft-Setup-0.5.1.exe` from
+   [Releases](https://github.com/TirupMehta/draft-rs/releases/latest). Choose
+   `Draft-Setup-0.5.1-offline.exe` (1.43 GB) only if you want no first-run
+   download.
+2. Run the installer. It installs for the current user under
+   `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
+3. On first launch Draft picks a model for your PC and downloads it once, with
+   a progress bar. The offline installer already includes the large model.
+4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
+
+**To remove it:** Start menu → Draft → **Uninstall Draft**. That one entry
+removes the app, its shortcuts, and its license files. Your settings, history,
+and the speech model in `%LOCALAPPDATA%\Draft4` are kept, so reinstalling does
+not download the model again. Delete that folder by hand if you want a clean
+slate.
+
+The installer is **not code-signed yet**, so Windows SmartScreen may show a
+warning on first run. You can verify the download against the release notes, or
+build from source.
+
+**Apple Silicon macOS, preview.** Download `Draft-0.2.0-macos-arm64.dmg` from
+the [macOS prerelease](https://github.com/TirupMehta/draft-rs/releases/tag/v0.2.0-macos.1).
+It is ad-hoc signed, not notarized, so macOS blocks the first launch; the
+release notes list the exact steps. The DMG carries the F16 model. The app is a
+preview: it builds and links on Apple hardware, but no one has dictated on a
+physical Mac yet.
 
 ## A look inside
 
@@ -104,25 +156,6 @@ model works. Light and dark follow your theme:
   **Uninstall Draft**. Uninstall keeps your settings, history, and model in
   `%LOCALAPPDATA%\Draft4` so a reinstall does not start over.
 
-## Privacy
-
-Draft is built to be private without asking you to trust a policy.
-
-- Audio is captured **only while the dictation key is held**.
-- Speech is transcribed on this device and discarded. Draft does not keep the
-  recording.
-- History contains **text and duration only**.
-- Settings, history, logs, and the model live under
-  `%LOCALAPPDATA%\Draft4`.
-- The one network exception is the speech model. The standard installer is
-  small and downloads the model you choose once, on first launch, from the
-  pinned Hugging Face source (85 MB to 1.6 GB), verified against a pinned
-  SHA-256. The `-offline` installer bundles the large model instead. After the
-  model is on your PC, dictation needs no network.
-- There is no telemetry, analytics, crash reporting, or update ping.
-- The GitHub and X actions on the Credits page open your browser only when you
-  choose them.
-
 ## Performance
 
 Measured on the reference machine: Intel Core i7-13620H, NVIDIA GeForce RTX
@@ -150,39 +183,45 @@ dictation takes a few seconds per clip, not the sub-second GPU figure. The
 method, the measured CPU table, and the raw reports are in
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
-## Install
+## Privacy
 
-**Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
-baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
+Draft is built to be private without asking you to trust a policy.
 
-1. Download `Draft-Setup-0.5.1.exe` from
-   [Releases](https://github.com/TirupMehta/draft-rs/releases/latest). Choose
-   `Draft-Setup-0.5.1-offline.exe` (1.43 GB) only if you want no first-run
-   download.
-2. Run the installer. It installs for the current user under
-   `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
-3. On first launch Draft picks a model for your PC and downloads it once, with
-   a progress bar. The offline installer already includes the large model.
-4. Hold **Right Ctrl**, speak, and release. The text appears at your cursor.
+- Audio is captured **only while the dictation key is held**.
+- Speech is transcribed on this device and discarded. Draft does not keep the
+  recording.
+- History contains **text and duration only**.
+- Settings, history, logs, and the model live under
+  `%LOCALAPPDATA%\Draft4`.
+- The one network exception is the speech model. The standard installer is
+  small and downloads the model you choose once, on first launch, from the
+  pinned Hugging Face source (85 MB to 1.6 GB), verified against a pinned
+  SHA-256. The `-offline` installer bundles the large model instead. After the
+  model is on your PC, dictation needs no network.
+- There is no telemetry, analytics, crash reporting, or update ping.
+- The GitHub and X actions on the Credits page open your browser only when you
+  choose them.
 
-**To remove it:** Start menu → Draft → **Uninstall Draft**. That one entry
-removes the app, its shortcuts, and its license files. Your settings, history,
-and the speech model in `%LOCALAPPDATA%\Draft4` are kept, so reinstalling does
-not download the model again. Delete that folder by hand if you want a clean
-slate.
+## Status and limitations
 
-The installer is **not code-signed yet**, so Windows SmartScreen may show a
-warning on first run. You can verify the download against the release notes, or
-build from source.
+Draft 0.5.1 is an early Windows release.
 
-**Apple Silicon macOS, preview.** Download `Draft-0.2.0-macos-arm64.dmg` from
-the [macOS prerelease](https://github.com/TirupMehta/draft-rs/releases/tag/v0.2.0-macos.1).
-It is ad-hoc signed, not notarized, so macOS blocks the first launch; the
-release notes list the exact steps. The DMG carries the F16 model. The app is a
-preview: it builds and links on Apple hardware, but no one has dictated on a
-physical Mac yet.
+- Windows x64 is the supported release. An Apple Silicon macOS preview is
+  available as an ad-hoc-signed DMG: it builds and links the Metal engine on the
+  `macos-14` runner and carries the same event tap, `Cmd+V` paste, AppKit window
+  behaviour, permission onboarding, and `Draft.app` bundle. It is not notarized
+  and has not been run on a physical Mac, so treat it as a preview, not a
+  supported release. [docs/MACOS.md](docs/MACOS.md) lists what is and is not
+  verified. Linux is not planned.
+- The installer is unsigned.
+- Real-speech WER parity with Draft v3.5 is still being measured. It is the
+  next release gate, and no accuracy claim is made ahead of it.
+- Updates are manual; there is no in-app updater.
 
-## Build from source
+## For developers
+
+<details>
+<summary><b>Build from source</b></summary>
 
 Requirements: Rust stable, Microsoft C++ Build Tools, CMake, and the Vulkan SDK.
 Install those, then:
@@ -232,7 +271,10 @@ It removes the app, both shortcuts, and the installed license texts. Settings,
 history, logs, and the model under `%LOCALAPPDATA%\Draft4` are intentionally
 kept; delete that folder yourself for a full reset.
 
-## Architecture
+</details>
+
+<details>
+<summary><b>Architecture</b></summary>
 
 ```text
 crates/draft-core      settings, history, text cleanup, model catalog, paths
@@ -253,21 +295,7 @@ scripts                build-installer.ps1, the release installer builder
 windows, microphones, hotkeys, clipboards, trays, and permissions. No OS-specific
 type crosses into the core.
 
-## Status and limitations
-
-Draft 0.5.1 is an early Windows release.
-
-- Windows x64 is the supported release. An Apple Silicon macOS preview is
-  available as an ad-hoc-signed DMG: it builds and links the Metal engine on the
-  `macos-14` runner and carries the same event tap, `Cmd+V` paste, AppKit window
-  behaviour, permission onboarding, and `Draft.app` bundle. It is not notarized
-  and has not been run on a physical Mac, so treat it as a preview, not a
-  supported release. [docs/MACOS.md](docs/MACOS.md) lists what is and is not
-  verified. Linux is not planned.
-- The installer is unsigned.
-- Real-speech WER parity with Draft v3.5 is still being measured. It is the
-  next release gate, and no accuracy claim is made ahead of it.
-- Updates are manual; there is no in-app updater.
+</details>
 
 ## Credits
 
