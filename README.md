@@ -155,9 +155,9 @@ method, the measured CPU table, and the raw reports are in
 **Windows 10/11, x64 with AVX2.** Draft's CPU fallback is built for an AVX2
 baseline (Haswell, 2013, or newer), which every Windows 11 machine meets.
 
-1. Download `Draft-Setup-0.5.0.exe` from
+1. Download `Draft-Setup-0.5.1.exe` from
    [Releases](https://github.com/TirupMehta/draft-rs/releases/latest). Choose
-   `Draft-Setup-0.5.0-offline.exe` (1.43 GB) only if you want no first-run
+   `Draft-Setup-0.5.1-offline.exe` (1.43 GB) only if you want no first-run
    download.
 2. Run the installer. It installs for the current user under
    `%LOCALAPPDATA%\Programs\Draft`; no administrator prompt is needed.
@@ -255,7 +255,7 @@ type crosses into the core.
 
 ## Status and limitations
 
-Draft 0.5.0 is an early Windows release.
+Draft 0.5.1 is an early Windows release.
 
 - Windows x64 is the supported release. An Apple Silicon macOS preview is
   available as an ad-hoc-signed DMG: it builds and links the Metal engine on the
