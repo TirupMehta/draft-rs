@@ -63,9 +63,12 @@
 | <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/formatting-dark.png">   <img src="docs/screenshots/formatting.png" alt="Formatting settings"> </picture> | <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/privacy-dark.png">   <img src="docs/screenshots/privacy.png" alt="Privacy settings"> </picture> |
 | Paragraphs at real pauses, spoken commands, optional lists. | What happens to one dictation, and where your data lives. |
 
-The recording HUD floats over whatever you are typing into and never takes focus:
+The recording HUD is one small pill that floats over whatever you are typing
+into and never takes focus: a dot, a live meter, and the length of the take.
 
-![Recording HUD](docs/screenshots/hud.png)
+<p align="center">
+  <img src="docs/screenshots/hud.png" alt="Recording HUD" width="214">
+</p>
 
 ## What works today
 
