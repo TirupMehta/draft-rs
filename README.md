@@ -13,9 +13,7 @@ at your cursor, and your voice never leaves your PC.
 
 <br>
 
-<img src="docs/images/hero.png" alt="Draft, ready to dictate" width="703">
-
-<br>
+<img src="docs/images/hero.png" alt="Draft, ready to dictate" width="697">
 
 ## Why Draft
 
