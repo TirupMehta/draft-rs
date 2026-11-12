@@ -1,21 +1,38 @@
-# Draft
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-dark.png">
+  <img src="docs/images/banner-light.png" alt="Draft: private dictation for Windows" width="560">
+</picture>
+</p>
 
-**Private, on-device dictation for Windows.**
+<p align="center">
+  Hold a key, speak, release. The words appear at your cursor,<br>
+  and your voice never leaves your PC.
+</p>
 
-Hold a key, speak, release. The transcript is pasted at your cursor. Speech
-recognition runs on your own PC with [Whisper](https://github.com/openai/whisper),
-on the GPU when one is available, so your audio is never uploaded and there is
-no account to create.
+<p align="center">
+  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915"></a>
+  <img alt="Windows 10 and 11, x64" src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-1b1915?style=flat-square">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1b1915?style=flat-square"></a>
+  <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square">
+</p>
 
-[Download](https://github.com/TirupMehta/draft-rs/releases/latest) ·
-[Quick start](#quick-start) ·
-[Usage](#usage) ·
-[Performance](#performance) ·
-[Privacy](#privacy) ·
-[Troubleshooting](#troubleshooting) ·
-[Building](#building-from-source)
+<p align="center">
+  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><b>Download</b></a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#performance">Performance</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#building-from-source">Build</a>
+</p>
 
-![Draft, ready to dictate](docs/screenshots/dictate.png)
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+  <img src="docs/images/hero-light.png" alt="Draft, ready to dictate, with the recording indicator floating over the window" width="860">
+</picture>
+</p>
 
 |  |  |
 | :--- | :--- |
@@ -90,6 +107,13 @@ window you are typing in.
 | **Live preview** | Shows words as you speak. Off by default, because each preview is another GPU pass. The final transcript always comes from the whole clip. |
 | **History** | The History tab lists your newest 50 dictations with Copy and Delete. It stores text and duration only, never audio, and removes entries older than 30 days. |
 | **Tray** | Show Draft, Hide Draft, Paste last dictation, Quit Draft. Draft starts in the tray at sign-in unless you turn that off. |
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screens-dark.png">
+  <img src="docs/images/screens-light.png" alt="The History tab and the model chooser in Settings" width="860">
+</picture>
+</p>
 
 ## Models
 
