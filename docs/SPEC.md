@@ -14,8 +14,8 @@ gymnastics.
 shortcut presets, the tray and click-through HUD with a live waveform and
 rolling partial text, persisted shortcut/microphone/model settings, the
 microphone level check and fallback, the pinned resumable model installer, the
-bounded history store, the Vulkan benchmark, and the per-user Inno Setup wizard
-are working. The native Parakeet streaming pass, the history pane, signed
+History tab and bounded history store, the Vulkan benchmark, and the per-user Inno Setup wizard
+are working. The native Parakeet streaming pass, signed
 updates, macOS/Linux shells, and mobile are not built yet. Real-speech WER
 parity is the open release gate. [`ROADMAP.md`](ROADMAP.md) is the live
 checklist.

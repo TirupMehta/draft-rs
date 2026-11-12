@@ -192,7 +192,7 @@ for pills and switches.
 * **The window is one surface.** The system caption is removed
   (`TitlebarOptions { appears_transparent: true }`) and Draft draws its own
   48 px title bar: brand mark, wordmark, the on-device pill, the
-  Dictate/Settings control, then minimize and close. Exactly one wordmark.
+  Dictate/History/Settings control, then minimize and close. Exactly one wordmark.
 * **One window size:** 680x500 client area for both views. The everyday view
   uses the full width with 32 px gutters: a 340 px instruction column and a
   244 px input band. `WINDOW_SIZE` in `app.rs` is the single source. The window
@@ -224,8 +224,9 @@ one number per control, advanced once per poll, and nothing runs while the app
 is idle.
 
 * Hover, press, and view selection use it.
-* The view and section switches are instant. There is no cross-fade and no
-  window resize; the fixed surface keeps text crisp and input immediate.
+* A screen arrives with a short fade and a rise of a few pixels, once, when you
+  switch view or section (see `app.rs`). There is no window resize; the fixed
+  surface keeps text crisp and input immediate.
 * Hover is 160 ms and press is 90 ms, so a click answers immediately and a
   hover settles. Both are **zero** when Windows reports that animations are
   off (`SPI_GETCLIENTAREAANIMATION`, read in `window_control.rs`). Respect the
@@ -348,7 +349,7 @@ cargo build --workspace --release
 Get-Process draft -ErrorAction SilentlyContinue | Stop-Process -Force
 Copy-Item target\release\draft.exe dist\draft.exe -Force
 .\scripts\build-installer.ps1
-Start-Process dist\Draft-Setup-0.3.1.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+Start-Process dist\Draft-Setup-<version>.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
 ```
 
 Notes:
@@ -419,8 +420,10 @@ a capture. That is the supported way to test the recording state.
   60 s result (1.19 s, 2.56x) and the full table, and 264 ms for the JFK
   clip. Real-speech WER parity with v3.5 is still unmeasured and is an open
   release gate.
-* One shadow, on the HUD only, because it floats over other applications.
-  No blur, no gradients, no large shadow stacks.
+* No shadows, blur, or gradients. The HUD is a transparent window, so Windows'
+  own frame (border, rounded corners, drop shadow) is switched off for it in
+  `window_control::configure_hud`; leave that in place or a dark rectangle
+  shows behind the pill.
 * Do not add a dependency for a visual effect. If an effect is not worth a
   dependency, it is not worth shipping.
 
@@ -452,7 +455,6 @@ screenshot than in a diff.
   for `WM_NCCALCSIZE`; this was judged too risky to do without a human
   watching the result.
 * The settings pane has no keyboard navigation.
-* The history pane is not built; the store and `draftctl history` exist.
 * Real-speech WER parity with v3.5 is unmeasured.
 * The installer is unsigned, so SmartScreen warns on first run.
 * macOS has a compiled shell but no verified runtime. `docs/MACOS.md` is the
@@ -469,14 +471,18 @@ screenshot than in a diff.
 
 ## 12. v0.4 launch changes (model tiers, small installer)
 
-* **Model tiers.** `models::CATALOG` has five pinned models (turbo F16, Q8_0,
-  Q5_K_M, small Q8_0, base Q8_0). `models::recommend(Capability)` picks one from
+* **Model tiers.** `models::CATALOG` has seven pinned models (turbo F16, Q8_0,
+  Q5_K_M, small, small English, base, base English; each with a plain-language
+  profile). `models::recommend(Capability)` picks one from
   `draft_engine::detect_hardware()` (GPU type/VRAM, RAM, CPU threads). The
   worker (`worker.rs::prepare_model`) decides at launch, downloads with real
   progress and 4 resumable attempts, and reports `Event::Chosen`; the app saves
   `settings.model_id`. Existing installs with any catalog model on disk keep it.
-* **Small installer.** `build-installer.ps1` builds `Draft-Setup-<v>.exe`
-  without the model; `-IncludeModel` builds `Draft-Setup-<v>-offline.exe`.
+* **Installers.** `build-installer.ps1` builds `Draft-Setup-<v>.exe` without the
+  model; `-IncludeModel` builds `Draft-Setup-<v>-offline.exe` with the large
+  model; `-IncludeModel -ModelPath <gguf> -Suffix -offline-small` builds an
+  edition with another model (the release ships Whisper Small this way). A
+  bundled model on disk is kept, so the app does not download a larger one.
 * **GPU safety.** A failed GPU load or warm-up falls back to CPU, emits
   `Event::FellBack`, and persists `settings.force_cpu`.
 * **AVX2 guard.** `main.rs::require_avx2` shows a message box instead of a
