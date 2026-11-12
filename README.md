@@ -1,38 +1,28 @@
-<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-dark.png">
-  <img src="docs/images/banner-light.png" alt="Draft: private dictation for Windows" width="560">
+  <img src="docs/images/banner-light.png" alt="Draft" height="56">
 </picture>
-</p>
 
-<p align="center">
-  Hold a key, speak, release. The words appear at your cursor,<br>
-  and your voice never leaves your PC.
-</p>
+**Private dictation for Windows.** Hold a key, speak, release. The words appear
+at your cursor, and your voice never leaves your PC.
 
-<p align="center">
-  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915"></a>
-  <img alt="Windows 10 and 11, x64" src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-1b1915?style=flat-square">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1b1915?style=flat-square"></a>
-  <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square">
-</p>
+[![Latest release](https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915)](https://github.com/TirupMehta/draft-rs/releases/latest)
+![Windows 10 and 11, x64](https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-1b1915?style=flat-square)
+[![MIT license](https://img.shields.io/badge/license-MIT-1b1915?style=flat-square)](LICENSE)
+![No telemetry](https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square)
 
-<p align="center">
-  <a href="https://github.com/TirupMehta/draft-rs/releases/latest"><b>Download</b></a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#usage">Usage</a> ·
-  <a href="#performance">Performance</a> ·
-  <a href="#privacy">Privacy</a> ·
-  <a href="#troubleshooting">Troubleshooting</a> ·
-  <a href="#building-from-source">Build</a>
-</p>
+[**Download**](https://github.com/TirupMehta/draft-rs/releases/latest) ·
+[Quick start](#quick-start) ·
+[Usage](#usage) ·
+[Performance](#performance) ·
+[Privacy](#privacy) ·
+[Troubleshooting](#troubleshooting) ·
+[Build](#building-from-source)
 
-<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-  <img src="docs/images/hero-light.png" alt="Draft, ready to dictate, with the recording indicator floating over the window" width="860">
+  <img src="docs/images/hero-light.png" alt="Draft, ready to dictate, with the recording indicator over the window" width="708">
 </picture>
-</p>
 
 |  |  |
 | :--- | :--- |
@@ -108,12 +98,10 @@ window you are typing in.
 | **History** | The History tab lists your newest 50 dictations with Copy and Delete. It stores text and duration only, never audio, and removes entries older than 30 days. |
 | **Tray** | Show Draft, Hide Draft, Paste last dictation, Quit Draft. Draft starts in the tray at sign-in unless you turn that off. |
 
-<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/screens-dark.png">
-  <img src="docs/images/screens-light.png" alt="The History tab and the model chooser in Settings" width="860">
+  <img src="docs/images/screens-light.png" alt="The History tab and the model chooser in Settings" width="100%">
 </picture>
-</p>
 
 ## Models
 
