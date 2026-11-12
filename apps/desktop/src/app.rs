@@ -928,7 +928,6 @@ impl DraftApp {
     fn sync_hud(&mut self, cx: &mut Context<Self>) {
         let snapshot = match self.phase {
             Phase::Listening => Some(HudSnapshot::listening(
-                &self.hotkey_label,
                 self.partial.clone(),
                 self.hud_bars(),
                 self.recording_started.map(elapsed_label),

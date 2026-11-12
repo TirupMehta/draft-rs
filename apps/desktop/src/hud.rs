@@ -2,10 +2,12 @@
 //!
 //! It lives in its own transparent popup window so it can stay above the target
 //! application without taking focus. The main window owns the state; this view
-//! draws the real microphone history and the newest words that were heard.
+//! draws the real microphone history, the take length, and, when live preview is
+//! on, the newest words that were heard.
 //!
 //! The meter is the same data as the window's input band, sampled coarser. It
-//! rests on a flat line when there is no sound and only rises on real input.
+//! rests on a row of dots when there is no sound and only rises on real input.
+//! Nothing else is drawn: no title, no hint, no key cap.
 
 use gpui::{Context, IntoElement, Render, Window, div, prelude::*, px};
 
@@ -15,8 +17,8 @@ use crate::theme;
 const METER_BARS: usize = 16;
 const BAR_WIDTH: f32 = 3.0;
 const METER_WIDTH: f32 = 93.0;
-const METER_HEIGHT: f32 = 28.0;
-/// Newest characters of a rolling preview that fit the detail line.
+const METER_HEIGHT: f32 = 24.0;
+/// Newest characters of a rolling preview that fit the preview pill.
 const PREVIEW_CHARS: usize = 46;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,8 +29,8 @@ pub enum HudTone {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HudSnapshot {
+    /// The label shown while the model works.
     pub title: String,
-    pub detail: String,
     /// The newest preview pass, when there is one. Never the final text.
     pub partial: Option<String>,
     /// Amplitude history, oldest first, 0..1. Empty when the microphone is off.
@@ -43,7 +45,6 @@ pub struct HudSnapshot {
 
 impl HudSnapshot {
     pub fn listening(
-        hotkey: &str,
         partial: Option<String>,
         bars: Vec<f32>,
         elapsed: Option<String>,
@@ -51,7 +52,6 @@ impl HudSnapshot {
     ) -> Self {
         Self {
             title: "Listening".to_owned(),
-            detail: format!("Release {hotkey} to transcribe"),
             partial,
             bars,
             elapsed,
@@ -64,7 +64,6 @@ impl HudSnapshot {
     pub fn transcribing(beat: u8, palette: theme::Palette) -> Self {
         Self {
             title: "Transcribing".to_owned(),
-            detail: "Finishing on this device".to_owned(),
             partial: None,
             bars: Vec::new(),
             elapsed: None,
@@ -107,7 +106,22 @@ impl Render for DraftHud {
         // silence. Bars grow from the centre line so the meter reads as a
         // waveform rather than a bar chart.
         let quiet = snapshot.bars.iter().all(|bar| *bar < 0.04);
-        let meter = if listening && !quiet {
+        let meter = if quiet {
+            div()
+                .w(px(METER_WIDTH))
+                .h(px(METER_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_between()
+                .children((0..METER_BARS).map(|_| {
+                    div()
+                        .w(px(BAR_WIDTH))
+                        .h(px(BAR_WIDTH))
+                        .rounded_full()
+                        .bg(palette.track)
+                }))
+                .into_any_element()
+        } else {
             div()
                 .w(px(METER_WIDTH))
                 .h(px(METER_HEIGHT))
@@ -123,93 +137,95 @@ impl Render for DraftHud {
                         .bg(theme::mix(palette.track, palette.accent, weight.powf(0.6)))
                 }))
                 .into_any_element()
-        } else {
-            div()
-                .w(px(METER_WIDTH))
-                .h(px(METER_HEIGHT))
-                .flex()
-                .items_center()
-                .justify_between()
-                .children((0..METER_BARS).map(|_| {
-                    div()
-                        .w(px(BAR_WIDTH))
-                        .h(px(BAR_WIDTH))
-                        .rounded_full()
-                        .bg(palette.track)
-                }))
-                .into_any_element()
         };
 
-        let body = snapshot
+        let preview = snapshot
             .partial
             .as_deref()
             .filter(|text| !text.trim().is_empty())
-            .map(|text| (clip_tail(text, PREVIEW_CHARS), palette.text))
-            .unwrap_or_else(|| (snapshot.detail.clone(), palette.secondary));
+            .map(|text| clip_tail(text, PREVIEW_CHARS));
 
-        // The right edge carries the take length beside the cancel key. While
-        // the model works there is no key to press, so the dots take that
-        // place and the pill stays balanced.
-        let trailing = if listening {
+        let timer = div()
+            .w(px(46.0))
+            .flex()
+            .justify_end()
+            .font_family(theme::text_font())
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .text_size(px(theme::type_size::SMALL))
+            .line_height(px(theme::line::SMALL))
+            .text_color(palette.secondary)
+            .child(
+                snapshot
+                    .elapsed
+                    .clone()
+                    .unwrap_or_else(|| "0:00.0".to_owned()),
+            );
+
+        // Listening: a status dot, the meter, the take length. The words only
+        // appear, and the pill only widens, when live preview has something
+        // to say. Working: three quiet dots and the one word for what is
+        // happening.
+        let width = match (listening, preview.is_some()) {
+            (true, true) => 420.0,
+            (true, false) => 214.0,
+            (false, _) => 156.0,
+        };
+
+        let content = if listening {
+            let mut row = div()
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .child(
+                    div()
+                        .w(px(8.0))
+                        .h(px(8.0))
+                        .rounded_full()
+                        .bg(palette.accent),
+                )
+                .child(meter);
+            if let Some(text) = preview {
+                row = row.child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .h(px(17.0))
+                        .overflow_hidden()
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
+                        .text_color(palette.text)
+                        .child(text),
+                );
+            }
+            row.child(timer).into_any_element()
+        } else {
             div()
                 .flex()
                 .items_center()
                 .gap(px(10.0))
                 .child(
                     div()
-                        .w(px(46.0))
                         .flex()
-                        .justify_end()
-                        .font_family(theme::text_font())
-                        .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_size(px(theme::type_size::SMALL))
-                        .line_height(px(theme::line::SMALL))
-                        .text_color(palette.text)
-                        .child(
-                            snapshot
-                                .elapsed
-                                .clone()
-                                .unwrap_or_else(|| "0:00.0".to_owned()),
-                        ),
+                        .items_center()
+                        .gap(px(4.0))
+                        .children((0..3).map(|index| {
+                            let lit = index == usize::from(snapshot.beat % 3);
+                            div().w(px(6.0)).h(px(6.0)).rounded_full().bg(if lit {
+                                palette.accent
+                            } else {
+                                palette.track
+                            })
+                        })),
                 )
                 .child(
                     div()
-                        .w(px(36.0))
-                        .h(px(22.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_md()
-                        .bg(palette.raised)
-                        .border_1()
-                        .border_color(palette.hairline)
-                        .font_family(theme::text_font())
-                        .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_size(px(10.0))
-                        .line_height(px(12.0))
+                        .text_size(px(theme::type_size::SMALL))
+                        .line_height(px(theme::line::SMALL))
                         .text_color(palette.secondary)
-                        .child("ESC"),
+                        .child(snapshot.title.clone()),
                 )
                 .into_any_element()
-        } else {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.0))
-                .children((0..3).map(|index| {
-                    let lit = index == usize::from(snapshot.beat % 3);
-                    div().w(px(6.0)).h(px(6.0)).rounded_full().bg(if lit {
-                        palette.accent_text
-                    } else {
-                        palette.track
-                    })
-                }))
-                .into_any_element()
         };
-
-        // The pill tightens when the microphone closes, so the working state
-        // never looks like a wide panel with two short lines in it.
-        let width = if listening { 540.0 } else { 400.0 };
 
         div()
             .size_full()
@@ -221,58 +237,16 @@ impl Render for DraftHud {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(14.0))
+                    .justify_center()
                     .w(px(width))
-                    .h(px(56.0))
-                    .pl(px(22.0))
-                    .pr(px(14.0))
+                    .h(px(44.0))
+                    .px(px(18.0))
                     .rounded_full()
                     .bg(palette.surface)
                     .border_1()
                     .border_color(palette.hairline_strong)
                     .shadow(theme::hud_shadow())
-                    .child(
-                        div()
-                            .w(px(10.0))
-                            .h(px(10.0))
-                            .rounded_full()
-                            .bg(if listening {
-                                palette.accent
-                            } else {
-                                palette.tertiary
-                            }),
-                    )
-                    .child(meter)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .gap(px(2.0))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .line_height(px(13.0))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(if listening {
-                                        palette.accent_text
-                                    } else {
-                                        palette.tertiary
-                                    })
-                                    .child(snapshot.title.to_uppercase()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(theme::type_size::SMALL))
-                                    .line_height(px(theme::line::SMALL))
-                                    .text_color(body.1)
-                                    .h(px(17.0))
-                                    .overflow_hidden()
-                                    .child(body.0),
-                            ),
-                    )
-                    .child(trailing),
+                    .child(content),
             )
     }
 }
