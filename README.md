@@ -1,11 +1,7 @@
-<div align="center">
-
-<img src="assets/draft-256.png" alt="" width="88">
-
 # Draft
 
-**Private dictation for Windows.**<br>
-Hold a key, speak, release. The words appear at your cursor, and your voice never leaves your PC.
+**Private dictation for Windows.** Hold a key, speak, release. The words appear
+at your cursor, and your voice never leaves your PC.
 
 [![Latest release](https://img.shields.io/github/v/release/TirupMehta/draft-rs?style=flat-square&color=a3610c&labelColor=1b1915)](https://github.com/TirupMehta/draft-rs/releases/latest)
 ![Windows 10 and 11, x64](https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-1b1915?style=flat-square)
@@ -19,16 +15,16 @@ Hold a key, speak, release. The words appear at your cursor, and your voice neve
 [Build](#build-from-source) ·
 [Docs](#documentation)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dictate-dark.png">
-  <img src="docs/screenshots/dictate.png" alt="Draft, ready to dictate" width="620">
-</picture>
-
-</div>
-
 |  **Private** | **Fast** | **Fits your PC** |
 | :--- | :--- | :--- |
 | Whisper runs on your machine. Audio is captured only while the key is held, then discarded. No account, no telemetry. | About 50× faster than you speak on a GPU: a minute of speech in 1.19 s. | Seven models from 85 MB to 1.6 GB. Draft measures your PC and recommends one. |
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dictate-dark.png">
+  <img src="docs/screenshots/dictate.png" alt="Draft, ready to dictate" width="480">
+</picture>
+</p>
 
 ## Install
 
