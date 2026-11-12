@@ -11,6 +11,11 @@ at your cursor, and your voice never leaves your PC.
 [![MIT license](https://img.shields.io/badge/license-MIT-1b1915?style=flat-square)](LICENSE)
 ![No telemetry](https://img.shields.io/badge/telemetry-none-1b1915?style=flat-square)
 
+[Website](https://draft.tirup.in) ·
+[Download](https://github.com/TirupMehta/draft-rs/releases/latest) ·
+[Offline dictation](https://draft.tirup.in/offline-dictation) ·
+[Whisper on Windows](https://draft.tirup.in/whisper-dictation-windows)
+
 <br>
 
 <img src="docs/images/hero.png" alt="Draft, ready to dictate" width="697">
